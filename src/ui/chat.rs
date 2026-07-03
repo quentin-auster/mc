@@ -1,0 +1,83 @@
+use ratatui::{
+    Frame,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
+};
+
+use crate::app::{App, Panel};
+
+const SHELL_OUTPUT_LIMIT: usize = 20;
+
+pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+    let is_active = matches!(app.active_panel, Panel::Chat);
+    let border_style = if is_active {
+        Style::default().fg(Color::Blue)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(3)])
+        .split(area);
+
+    // Conversation messages from the active tree path.
+    let mut items: Vec<ListItem> = app.tree.active_path().into_iter()
+        .flat_map(|id| {
+            let node = &app.tree.nodes[&id];
+            let mut v = vec![];
+            if let Some(content) = &node.user_content {
+                v.push(message_item("you  ", Color::Green, content));
+            }
+            if let Some(content) = &node.assistant_content {
+                v.push(message_item("mc   ", Color::Cyan, content));
+            }
+            v
+        })
+        .collect();
+
+    // Shell command log — always visible, not branch-scoped.
+    for entry in &app.shell_log {
+        let cmd_color = if entry.success { Color::Yellow } else { Color::Red };
+        items.push(message_item("!    ", cmd_color, &format!("$ {}", entry.command)));
+        let lines: Vec<&str> = entry.output.lines().collect();
+        let shown = lines.len().min(SHELL_OUTPUT_LIMIT);
+        for line in &lines[..shown] {
+            items.push(message_item("     ", Color::DarkGray, *line));
+        }
+        let hidden = lines.len().saturating_sub(SHELL_OUTPUT_LIMIT);
+        if hidden > 0 {
+            items.push(message_item("     ", Color::DarkGray, &format!("… {hidden} more lines")));
+        }
+    }
+
+    // Transient status line (command feedback, errors).
+    if let Some(status) = &app.status {
+        let color = if status.is_error { Color::Red } else { Color::DarkGray };
+        items.push(message_item("sys  ", color, &status.message));
+    }
+
+    let messages = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style)
+            .title(" Chat "),
+    );
+    frame.render_widget(messages, chunks[0]);
+
+    let input = Paragraph::new(format!("> {}_", app.input)).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style),
+    );
+    frame.render_widget(input, chunks[1]);
+}
+
+fn message_item(prefix: impl Into<String>, color: Color, content: impl Into<String>) -> ListItem<'static> {
+    ListItem::new(Line::from(vec![
+        Span::styled(prefix.into(), Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::raw(content.into()),
+    ]))
+}
