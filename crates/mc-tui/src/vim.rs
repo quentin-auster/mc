@@ -27,7 +27,7 @@ pub fn parse(input: &str) -> Result<VimCommand, String> {
     }
 
     if let Some(rest) = body.strip_prefix('/') {
-        return parse_search(rest);
+        return parse_anchor_command(rest);
     }
 
     if let Some(rest) = body.strip_prefix("%s") {
@@ -50,6 +50,10 @@ pub fn parse(input: &str) -> Result<VimCommand, String> {
         }));
     }
 
+    if let Some((range, text)) = parse_line_replace(body)? {
+        return Ok(VimCommand::Edit(EditOp::ReplaceRange { range, text }));
+    }
+
     if let Some(rest) = body.strip_suffix('d') {
         let range = parse_line_range(rest)?;
         return Ok(VimCommand::Edit(EditOp::DeleteRange { range }));
@@ -66,12 +70,33 @@ pub fn parse(input: &str) -> Result<VimCommand, String> {
     Err(format!("unsupported vim command ':{body}'"))
 }
 
-fn parse_search(rest: &str) -> Result<VimCommand, String> {
+fn parse_anchor_command(rest: &str) -> Result<VimCommand, String> {
     let (pattern, tail) = rest
         .split_once('/')
-        .ok_or_else(|| "search command requires a closing '/'".to_string())?;
+        .ok_or_else(|| "anchor command requires a closing '/'".to_string())?;
     if pattern.is_empty() {
-        return Err("search pattern cannot be empty".to_string());
+        return Err("anchor pattern cannot be empty".to_string());
+    }
+
+    if let Some(substitute) = tail.strip_prefix('s') {
+        let (sub_pattern, replacement, global) = parse_substitute_tail(substitute)?;
+        return Ok(VimCommand::Edit(EditOp::Substitute {
+            range: Some(RangeSpec::Anchor {
+                pattern: pattern.to_string(),
+            }),
+            pattern: sub_pattern,
+            replacement,
+            global,
+        }));
+    }
+
+    if let Some(text) = tail.strip_prefix("c ") {
+        return Ok(VimCommand::Edit(EditOp::ReplaceRange {
+            range: RangeSpec::Anchor {
+                pattern: pattern.to_string(),
+            },
+            text: text.to_string(),
+        }));
     }
 
     let context_after = if tail.is_empty() {
@@ -125,6 +150,16 @@ fn parse_line_range(input: &str) -> Result<RangeSpec, String> {
         return Err("line range must be 1-based and increasing".to_string());
     }
     Ok(RangeSpec::Lines { start, end })
+}
+
+fn parse_line_replace(body: &str) -> Result<Option<(RangeSpec, String)>, String> {
+    let Some((range, text)) = body.split_once("c ") else {
+        return Ok(None);
+    };
+    if range.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some((parse_line_range(range)?, text.to_string())))
 }
 
 fn parse_anchor_insert(body: &str, operator: &str) -> Option<(String, String)> {
@@ -181,6 +216,45 @@ mod tests {
             parse(":2,4d").unwrap(),
             VimCommand::Edit(EditOp::DeleteRange {
                 range: RangeSpec::Lines { start: 2, end: 4 },
+            })
+        );
+    }
+
+    #[test]
+    fn parses_anchor_substitute() {
+        assert_eq!(
+            parse(":/target/s/foo/bar/").unwrap(),
+            VimCommand::Edit(EditOp::Substitute {
+                range: Some(RangeSpec::Anchor {
+                    pattern: "target".to_string()
+                }),
+                pattern: "foo".to_string(),
+                replacement: "bar".to_string(),
+                global: false,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_line_replace() {
+        assert_eq!(
+            parse(":2,4c replacement").unwrap(),
+            VimCommand::Edit(EditOp::ReplaceRange {
+                range: RangeSpec::Lines { start: 2, end: 4 },
+                text: "replacement".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parses_anchor_replace() {
+        assert_eq!(
+            parse(":/target/c replacement").unwrap(),
+            VimCommand::Edit(EditOp::ReplaceRange {
+                range: RangeSpec::Anchor {
+                    pattern: "target".to_string()
+                },
+                text: "replacement".to_string(),
             })
         );
     }
