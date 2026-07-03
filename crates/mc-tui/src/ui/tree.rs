@@ -9,7 +9,7 @@ use ratatui::{
 use crate::app::{App, Panel};
 use crate::conversation::tree::Node;
 
-pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let is_focused = matches!(app.active_panel, Panel::Tree);
     let border_style = if is_focused {
         Style::default().fg(Color::Blue)
@@ -22,6 +22,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, &(id, depth))| {
+            app.layout.tree_rows.push((area.y + 1 + i as u16, id));
             let node = &app.tree.nodes[&id];
             let is_active = id == app.tree.active;
             let is_cursor = is_focused && i == app.tree_cursor;

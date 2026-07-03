@@ -7,10 +7,11 @@ use ratatui::{
 };
 
 use crate::app::{App, Panel};
+use crate::diff::DiffLine;
 
 const SHELL_OUTPUT_LIMIT: usize = 20;
 
-pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
     let is_active = matches!(app.active_panel, Panel::Chat);
     let border_style = if is_active {
         Style::default().fg(Color::Blue)
@@ -68,6 +69,25 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         }
     }
 
+    for message in &app.system_log {
+        for line in message.lines() {
+            items.push(message_item("sys  ", Color::DarkGray, line));
+        }
+    }
+
+    for diff in &app.diff_log {
+        items.push(message_item("diff ", Color::Yellow, &diff.path));
+        for line in &diff.lines {
+            let (color, text) = match line {
+                DiffLine::Header(text) => (Color::DarkGray, text),
+                DiffLine::Context(text) => (Color::Gray, text),
+                DiffLine::Added(text) => (Color::Green, text),
+                DiffLine::Removed(text) => (Color::Red, text),
+            };
+            items.push(message_item("     ", color, text));
+        }
+    }
+
     // Transient status line (command feedback, errors).
     if let Some(status) = &app.status {
         let color = if status.is_error {
@@ -93,12 +113,19 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     );
     frame.render_widget(messages, chunks[0]);
 
-    let input = Paragraph::new(format!("> {}_", app.input)).block(
+    let input = Paragraph::new(format!("> {}", app.input)).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(border_style),
     );
     frame.render_widget(input, chunks[1]);
+    app.layout.input = Some(chunks[1]);
+
+    if is_active {
+        let cursor_x = chunks[1].x + 3 + app.input[..app.input_cursor].chars().count() as u16;
+        let cursor_y = chunks[1].y + 1;
+        frame.set_cursor_position((cursor_x, cursor_y));
+    }
 }
 
 fn message_item(

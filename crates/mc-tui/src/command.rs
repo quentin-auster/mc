@@ -1,5 +1,6 @@
 use crate::agent::AgentMode;
 use crate::edit::EditStrategy;
+use crate::provider::Provider;
 
 pub enum JumpTarget {
     Steps(i32), // negative = back, positive = forward
@@ -51,11 +52,28 @@ pub enum Command {
     Hint,
     Check,
     Reveal,
+    Help,
+    Provider(Option<Provider>),
+    Model(String),
+    FileOpen(String),
+    FileRead {
+        path: String,
+        start: Option<usize>,
+        end: Option<usize>,
+    },
+    FileWrite {
+        path: String,
+        content: String,
+    },
     Quit,
     Unknown(String),
 }
 
 pub fn parse(input: &str) -> Command {
+    if input.trim() == "?" {
+        return Command::Help;
+    }
+
     let trimmed = input.trim_start_matches('/');
     let mut parts = trimmed.splitn(2, ' ');
     let name = parts.next().unwrap_or("").to_lowercase();
@@ -130,6 +148,33 @@ pub fn parse(input: &str) -> Command {
         "hint" => Command::Hint,
         "check" => Command::Check,
         "reveal" => Command::Reveal,
+        "help" | "?" => Command::Help,
+        "provider" => {
+            if arg.is_empty() {
+                Command::Provider(None)
+            } else {
+                match Provider::parse(arg) {
+                    Some(provider) => Command::Provider(Some(provider)),
+                    None => Command::Unknown("provider requires one of: anthropic, openai".into()),
+                }
+            }
+        }
+        "model" => {
+            if arg.is_empty() {
+                Command::Unknown("model requires a model name: /model <name>".into())
+            } else {
+                Command::Model(arg.to_string())
+            }
+        }
+        "open" => {
+            if arg.is_empty() {
+                Command::Unknown("open requires a path: /open <path>".into())
+            } else {
+                Command::FileOpen(arg.to_string())
+            }
+        }
+        "read" => parse_file_read(arg).unwrap_or_else(Command::Unknown),
+        "write" => parse_file_write(arg).unwrap_or_else(Command::Unknown),
         "quit" | "q" | "exit" => Command::Quit,
         _ => Command::Unknown(name),
     }
@@ -200,6 +245,48 @@ fn parse_context_id(raw: Option<&str>, action: &str) -> Result<usize, String> {
         .map_err(|_| format!("context {action} id must be a positive number"))
 }
 
+fn parse_file_read(arg: &str) -> Result<Command, String> {
+    let mut parts = arg.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| "read requires a path: /read <path> [start end]".to_string())?;
+    let start = parts
+        .next()
+        .map(|raw| {
+            raw.parse::<usize>()
+                .map_err(|_| "read start must be a number".to_string())
+        })
+        .transpose()?;
+    let end = parts
+        .next()
+        .map(|raw| {
+            raw.parse::<usize>()
+                .map_err(|_| "read end must be a number".to_string())
+        })
+        .transpose()?;
+    if matches!((start, end), (Some(s), Some(e)) if s == 0 || e < s) {
+        return Err("read requires a valid 1-based line range".to_string());
+    }
+    Ok(Command::FileRead {
+        path: path.to_string(),
+        start,
+        end,
+    })
+}
+
+fn parse_file_write(arg: &str) -> Result<Command, String> {
+    let mut parts = arg.splitn(2, char::is_whitespace);
+    let path = parts.next().unwrap_or("").trim();
+    let content = parts.next().unwrap_or("").trim_start();
+    if path.is_empty() || content.is_empty() {
+        return Err("write requires: /write <path> <content>".to_string());
+    }
+    Ok(Command::FileWrite {
+        path: path.to_string(),
+        content: content.to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,6 +324,33 @@ mod tests {
         match parse("/context pin 3") {
             Command::Context(ContextCommand::Ledger(ContextAction::Pin(3))) => {}
             _ => panic!("expected context pin command"),
+        }
+    }
+
+    #[test]
+    fn parses_help_alias() {
+        match parse("?") {
+            Command::Help => {}
+            _ => panic!("expected help command"),
+        }
+    }
+
+    #[test]
+    fn parses_file_write_command() {
+        match parse("/write README.md hello") {
+            Command::FileWrite { path, content } => {
+                assert_eq!(path, "README.md");
+                assert_eq!(content, "hello");
+            }
+            _ => panic!("expected file write command"),
+        }
+    }
+
+    #[test]
+    fn parses_provider_command() {
+        match parse("/provider openai") {
+            Command::Provider(Some(Provider::OpenAi)) => {}
+            _ => panic!("expected provider command"),
         }
     }
 }

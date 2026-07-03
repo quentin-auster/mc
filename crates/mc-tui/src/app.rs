@@ -1,11 +1,16 @@
+use std::fs;
 use std::path::{Component, Path};
 use std::process::Command as ShellCommand;
+
+use ratatui::layout::Rect;
 
 use crate::agent::AgentMode;
 use crate::command::{self, Command, JumpTarget};
 use crate::context::{self, ContextLedger};
-use crate::conversation::tree::{ConversationTree, LearningMetadata};
+use crate::conversation::tree::{ConversationTree, LearningMetadata, NodeId};
+use crate::diff::{self, DiffEntry};
 use crate::edit::{self, EditOp, EditStrategy};
+use crate::provider::Provider;
 use crate::vim::{self, VimCommand};
 
 #[derive(Copy, Clone, PartialEq)]
@@ -28,19 +33,25 @@ pub struct ShellEntry {
 pub struct App {
     pub active_panel: Panel,
     pub input: String,
+    pub input_cursor: usize,
     pub tree: ConversationTree,
     pub agent_mode: AgentMode,
     pub edit_strategy: EditStrategy,
+    pub provider: Provider,
+    pub model: Option<String>,
     /// Transient feedback from the last command. Cleared on next message submission.
     pub status: Option<Status>,
     /// Cursor index into `tree.display_entries()`. Used for tree panel navigation.
     pub tree_cursor: usize,
     /// Shell command output log. Persists for the session regardless of active branch.
     pub shell_log: Vec<ShellEntry>,
+    pub system_log: Vec<String>,
+    pub diff_log: Vec<DiffEntry>,
     /// Structured context gathered through read-only harness commands.
     pub context_ledger: ContextLedger,
     /// File selected by compact edit commands such as `:e`.
     pub open_file: Option<String>,
+    pub layout: LayoutState,
     /// Last 10 inputs, oldest first.
     pub history: Vec<String>,
     /// Index into history while browsing: Some(0) = newest, Some(1) = second-newest, etc.
@@ -55,14 +66,20 @@ impl App {
         Self {
             active_panel: Panel::Chat,
             input: String::new(),
+            input_cursor: 0,
             tree: ConversationTree::new(),
             agent_mode: AgentMode::Normal,
             edit_strategy: EditStrategy::Patch,
+            provider: Provider::Anthropic,
+            model: None,
             status: None,
             tree_cursor: 0,
             shell_log: Vec::new(),
+            system_log: Vec::new(),
+            diff_log: Vec::new(),
             context_ledger: ContextLedger::new(),
             open_file: None,
+            layout: LayoutState::default(),
             history: Vec::new(),
             history_pos: None,
             history_draft: String::new(),
@@ -79,6 +96,7 @@ impl App {
 
     pub fn process_input(&mut self) {
         let input: String = self.input.drain(..).collect();
+        self.input_cursor = 0;
         self.history_pos = None;
         self.history_draft = String::new();
         if input.is_empty() {
@@ -89,7 +107,7 @@ impl App {
             self.run_shell(input[1..].trim());
         } else if input.starts_with(':') {
             self.handle_vim_command(&input);
-        } else if input.starts_with('/') {
+        } else if input.starts_with('/') || input.trim() == "?" {
             self.handle_command(&input);
         } else {
             self.status = None;
@@ -113,6 +131,7 @@ impl App {
         };
         self.history_pos = Some(next_pos);
         self.input = self.history[len - 1 - next_pos].clone();
+        self.input_cursor = self.input.len();
     }
 
     /// Navigate forwards through history (newer entries, back to draft).
@@ -122,13 +141,85 @@ impl App {
             Some(0) => {
                 self.history_pos = None;
                 self.input = self.history_draft.clone();
+                self.input_cursor = self.input.len();
             }
             Some(n) => {
                 let next = n - 1;
                 self.history_pos = Some(next);
                 self.input = self.history[self.history.len() - 1 - next].clone();
+                self.input_cursor = self.input.len();
             }
         }
+    }
+
+    pub fn insert_char(&mut self, c: char) {
+        self.input.insert(self.input_cursor, c);
+        self.input_cursor += c.len_utf8();
+    }
+
+    pub fn backspace(&mut self) {
+        if self.input_cursor == 0 {
+            return;
+        }
+        let prev = previous_boundary(&self.input, self.input_cursor);
+        self.input.drain(prev..self.input_cursor);
+        self.input_cursor = prev;
+    }
+
+    pub fn delete_forward(&mut self) {
+        if self.input_cursor >= self.input.len() {
+            return;
+        }
+        let next = next_boundary(&self.input, self.input_cursor);
+        self.input.drain(self.input_cursor..next);
+    }
+
+    pub fn cursor_left(&mut self) {
+        self.input_cursor = previous_boundary(&self.input, self.input_cursor);
+    }
+
+    pub fn cursor_right(&mut self) {
+        self.input_cursor = next_boundary(&self.input, self.input_cursor);
+    }
+
+    pub fn cursor_home(&mut self) {
+        self.input_cursor = 0;
+    }
+
+    pub fn cursor_end(&mut self) {
+        self.input_cursor = self.input.len();
+    }
+
+    pub fn cursor_word_left(&mut self) {
+        let prefix = &self.input[..self.input_cursor];
+        let trimmed = prefix.trim_end_matches(char::is_whitespace);
+        let mut target = trimmed.len();
+        while target > 0 {
+            let prev = previous_boundary(trimmed, target);
+            let ch = trimmed[prev..target].chars().next().unwrap_or_default();
+            if ch.is_whitespace() {
+                break;
+            }
+            target = prev;
+        }
+        self.input_cursor = target;
+    }
+
+    pub fn cursor_word_right(&mut self) {
+        let suffix = &self.input[self.input_cursor..];
+        let mut offset = 0;
+        let mut seen_word = false;
+        for ch in suffix.chars() {
+            if ch.is_whitespace() {
+                if seen_word {
+                    break;
+                }
+            } else {
+                seen_word = true;
+            }
+            offset += ch.len_utf8();
+        }
+        self.input_cursor += offset;
     }
 
     /// Move tree cursor up one entry.
@@ -151,6 +242,32 @@ impl App {
             self.tree.active = node_id;
             let hash = self.tree.nodes[&node_id].hash.clone();
             self.set_status(format!("jumped to {hash}"), false);
+        }
+    }
+
+    pub fn focus_chat(&mut self) {
+        self.active_panel = Panel::Chat;
+    }
+
+    pub fn focus_tree(&mut self) {
+        self.active_panel = Panel::Tree;
+    }
+
+    pub fn click_tree_row(&mut self, row: u16) {
+        self.focus_tree();
+        if let Some(node_id) = self
+            .layout
+            .tree_rows
+            .iter()
+            .find_map(|(y, id)| (*y == row).then_some(*id))
+        {
+            let entries = self.tree.display_entries();
+            if let Some(pos) = entries.iter().position(|&(id, _)| id == node_id) {
+                self.tree_cursor = pos;
+                self.tree.active = node_id;
+                let hash = self.tree.nodes[&node_id].hash.clone();
+                self.set_status(format!("selected {hash}"), false);
+            }
         }
     }
 
@@ -261,6 +378,15 @@ impl App {
             Command::Hint => self.reveal_learning_part(LearningPart::Hint),
             Command::Check => self.reveal_learning_part(LearningPart::Check),
             Command::Reveal => self.reveal_learning_part(LearningPart::Reveal),
+            Command::Help => self.show_help(),
+            Command::Provider(provider) => self.handle_provider(provider),
+            Command::Model(model) => {
+                self.model = Some(model.clone());
+                self.set_status(format!("model: {model}"), false);
+            }
+            Command::FileOpen(path) => self.handle_file_open(path),
+            Command::FileRead { path, start, end } => self.handle_file_read(path, start, end),
+            Command::FileWrite { path, content } => self.handle_file_write(path, content),
             Command::Quit => self.should_quit = true,
             Command::Unknown(msg) => self.set_status(msg, true),
         }
@@ -308,6 +434,67 @@ impl App {
             std::fs::read_to_string(path).map_err(|e| format!("failed to read {path}: {e}"))?;
         edit::apply_to_string(&content, op)?;
         Ok(format!("macro edit validated against {path}"))
+    }
+
+    fn show_help(&mut self) {
+        self.system_log.push(help_text());
+        self.set_status("showing help", false);
+    }
+
+    fn handle_provider(&mut self, provider: Option<Provider>) {
+        if let Some(provider) = provider {
+            self.provider = provider;
+        }
+        let available = if self.provider.has_credentials() {
+            "available"
+        } else {
+            "missing"
+        };
+        self.set_status(
+            format!(
+                "provider: {} ({} {})",
+                self.provider,
+                self.provider.env_var(),
+                available
+            ),
+            !self.provider.has_credentials(),
+        );
+    }
+
+    fn handle_file_open(&mut self, path: String) {
+        match read_workspace_file(&path) {
+            Ok(content) => {
+                self.open_file = Some(path.clone());
+                self.system_log
+                    .push(format!("opened {path}\n{} bytes", content.len()));
+                self.set_status(format!("open file: {path}"), false);
+            }
+            Err(error) => self.set_status(error, true),
+        }
+    }
+
+    fn handle_file_read(&mut self, path: String, start: Option<usize>, end: Option<usize>) {
+        match read_workspace_file(&path).and_then(|content| select_lines(&content, start, end)) {
+            Ok(content) => {
+                self.system_log.push(format!("{path}\n{content}"));
+                self.set_status(format!("read {path}"), false);
+            }
+            Err(error) => self.set_status(error, true),
+        }
+    }
+
+    fn handle_file_write(&mut self, path: String, content: String) {
+        match read_workspace_file(&path).and_then(|before| {
+            ensure_workspace_relative(&path)?;
+            fs::write(&path, &content).map_err(|e| format!("failed to write {path}: {e}"))?;
+            Ok(before)
+        }) {
+            Ok(before) => {
+                self.diff_log.push(diff::unified(&path, &before, &content));
+                self.set_status(format!("wrote {path}"), false);
+            }
+            Err(error) => self.set_status(error, true),
+        }
     }
 
     fn seed_learning_response(&mut self, id: usize) {
@@ -378,10 +565,38 @@ impl App {
     }
 }
 
+#[derive(Default)]
+pub struct LayoutState {
+    pub chat: Option<Rect>,
+    pub tree: Option<Rect>,
+    pub input: Option<Rect>,
+    pub tree_rows: Vec<(u16, NodeId)>,
+}
+
 enum LearningPart {
     Hint,
     Check,
     Reveal,
+}
+
+fn help_text() -> String {
+    [
+        "Commands",
+        "/help or ? - show this help",
+        "/mode normal|learning - switch collaboration mode",
+        "/strategy patch|macro - switch edit strategy",
+        "/provider [anthropic|openai] - inspect or select API provider",
+        "/model <name> - select model name",
+        "/jump <steps|hash>, /branch [name], /merge <hash>",
+        "/hint, /check, /reveal - learning-mode guidance",
+        "/rg <pattern>, /files [filter], /head <path> [n], /tail <path> [n]",
+        "/wc <path>, /sed <path> <start> <end>, /awk <path> <pattern>",
+        "/context list|pin <id>|drop <id>|clear",
+        "/open <path>, /read <path> [start end], /write <path> <content>",
+        ":e <path>, :/pattern/, :%s/foo/bar/g, :2,4d, :2,4c text",
+        "!<shell command> - run a shell command",
+    ]
+    .join("\n")
 }
 
 fn truncate_label(s: &str, max_chars: usize) -> String {
@@ -406,4 +621,72 @@ fn ensure_workspace_relative(path: &str) -> Result<(), String> {
         return Err("macro edit paths cannot contain '..'".to_string());
     }
     Ok(())
+}
+
+fn read_workspace_file(path: &str) -> Result<String, String> {
+    ensure_workspace_relative(path)?;
+    fs::read_to_string(path).map_err(|e| format!("failed to read {path}: {e}"))
+}
+
+fn select_lines(content: &str, start: Option<usize>, end: Option<usize>) -> Result<String, String> {
+    match (start, end) {
+        (None, None) => Ok(content.to_string()),
+        (Some(start), Some(end)) => {
+            let lines: Vec<&str> = content.lines().collect();
+            if start == 0 || end < start || end > lines.len() {
+                return Err("read range is outside the file".to_string());
+            }
+            Ok(lines[start - 1..end].join("\n"))
+        }
+        _ => Err("read ranges require both start and end".to_string()),
+    }
+}
+
+fn previous_boundary(input: &str, index: usize) -> usize {
+    input[..index]
+        .char_indices()
+        .last()
+        .map(|(i, _)| i)
+        .unwrap_or(0)
+}
+
+fn next_boundary(input: &str, index: usize) -> usize {
+    input[index..]
+        .char_indices()
+        .nth(1)
+        .map(|(i, _)| index + i)
+        .unwrap_or(input.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inserts_and_backspaces_at_cursor() {
+        let mut app = App::new();
+        app.insert_char('a');
+        app.insert_char('c');
+        app.cursor_left();
+        app.insert_char('b');
+
+        assert_eq!(app.input, "abc");
+        assert_eq!(app.input_cursor, 2);
+
+        app.backspace();
+        assert_eq!(app.input, "ac");
+        assert_eq!(app.input_cursor, 1);
+    }
+
+    #[test]
+    fn word_navigation_moves_between_words() {
+        let mut app = App::new();
+        app.input = "one two".to_string();
+        app.input_cursor = app.input.len();
+
+        app.cursor_word_left();
+        assert_eq!(app.input_cursor, 4);
+        app.cursor_word_right();
+        assert_eq!(app.input_cursor, app.input.len());
+    }
 }
