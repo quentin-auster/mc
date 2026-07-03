@@ -1,11 +1,11 @@
-use std::time::Duration;
 use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
+use std::time::Duration;
 
 use crate::app::{App, Panel};
 
@@ -55,14 +55,29 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
     // Panel-specific arrow key handling.
     match app.active_panel {
         Panel::Tree => match key.code {
-            KeyCode::Up => { app.tree_cursor_up(); return; }
-            KeyCode::Down => { app.tree_cursor_down(); return; }
-            KeyCode::Enter => { app.tree_cursor_jump(); return; }
+            KeyCode::Up => {
+                app.tree_cursor_up();
+                return;
+            }
+            KeyCode::Down => {
+                app.tree_cursor_down();
+                return;
+            }
+            KeyCode::Enter => {
+                app.tree_cursor_jump();
+                return;
+            }
             _ => {}
         },
         Panel::Chat => match key.code {
-            KeyCode::Up => { app.history_up(); return; }
-            KeyCode::Down => { app.history_down(); return; }
+            KeyCode::Up => {
+                app.history_up();
+                return;
+            }
+            KeyCode::Down => {
+                app.history_down();
+                return;
+            }
             _ => {}
         },
     }
@@ -71,7 +86,9 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
         KeyCode::Esc => app.should_quit = true,
         KeyCode::Tab => app.toggle_panel(),
         KeyCode::Enter => app.process_input(),
-        KeyCode::Backspace => { app.input.pop(); }
+        KeyCode::Backspace => {
+            app.input.pop();
+        }
         KeyCode::Char(c) => app.input.push(c),
         _ => {}
     }

@@ -24,7 +24,10 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     // Conversation messages from the active tree path.
-    let mut items: Vec<ListItem> = app.tree.active_path().into_iter()
+    let mut items: Vec<ListItem> = app
+        .tree
+        .active_path()
+        .into_iter()
         .flat_map(|id| {
             let node = &app.tree.nodes[&id];
             let mut v = vec![];
@@ -40,8 +43,16 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 
     // Shell command log — always visible, not branch-scoped.
     for entry in &app.shell_log {
-        let cmd_color = if entry.success { Color::Yellow } else { Color::Red };
-        items.push(message_item("!    ", cmd_color, &format!("$ {}", entry.command)));
+        let cmd_color = if entry.success {
+            Color::Yellow
+        } else {
+            Color::Red
+        };
+        items.push(message_item(
+            "!    ",
+            cmd_color,
+            &format!("$ {}", entry.command),
+        ));
         let lines: Vec<&str> = entry.output.lines().collect();
         let shown = lines.len().min(SHELL_OUTPUT_LIMIT);
         for line in &lines[..shown] {
@@ -49,21 +60,36 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         }
         let hidden = lines.len().saturating_sub(SHELL_OUTPUT_LIMIT);
         if hidden > 0 {
-            items.push(message_item("     ", Color::DarkGray, &format!("… {hidden} more lines")));
+            items.push(message_item(
+                "     ",
+                Color::DarkGray,
+                &format!("… {hidden} more lines"),
+            ));
         }
     }
 
     // Transient status line (command feedback, errors).
     if let Some(status) = &app.status {
-        let color = if status.is_error { Color::Red } else { Color::DarkGray };
+        let color = if status.is_error {
+            Color::Red
+        } else {
+            Color::DarkGray
+        };
         items.push(message_item("sys  ", color, &status.message));
     }
+
+    let title = format!(
+        " Chat  mode:{}  strategy:{}  {} ",
+        app.agent_mode,
+        app.edit_strategy,
+        app.context_ledger.summary()
+    );
 
     let messages = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(border_style)
-            .title(" Chat "),
+            .title(title),
     );
     frame.render_widget(messages, chunks[0]);
 
@@ -75,9 +101,16 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(input, chunks[1]);
 }
 
-fn message_item(prefix: impl Into<String>, color: Color, content: impl Into<String>) -> ListItem<'static> {
+fn message_item(
+    prefix: impl Into<String>,
+    color: Color,
+    content: impl Into<String>,
+) -> ListItem<'static> {
     ListItem::new(Line::from(vec![
-        Span::styled(prefix.into(), Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            prefix.into(),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
         Span::raw(content.into()),
     ]))
 }

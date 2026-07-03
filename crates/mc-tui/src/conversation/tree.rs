@@ -2,6 +2,12 @@ use std::collections::HashMap;
 
 pub type NodeId = usize;
 
+pub struct LearningMetadata {
+    pub objective: String,
+    pub hint: String,
+    pub expected_direction: String,
+}
+
 pub struct Node {
     pub id: NodeId,
     pub hash: String,
@@ -14,6 +20,8 @@ pub struct Node {
     pub user_content: Option<String>,
     /// Filled when the assistant responds (API not yet wired).
     pub assistant_content: Option<String>,
+    /// Present for learning-mode turns so follow-up commands can reveal scaffolded guidance.
+    pub learning_metadata: Option<LearningMetadata>,
 }
 
 impl Node {
@@ -44,13 +52,24 @@ impl ConversationTree {
             label: "root".to_string(),
             user_content: None,
             assistant_content: None,
+            learning_metadata: None,
         };
         let mut nodes = HashMap::new();
         nodes.insert(0, root);
-        Self { nodes, root: 0, active: 0, next_id: 1 }
+        Self {
+            nodes,
+            root: 0,
+            active: 0,
+            next_id: 1,
+        }
     }
 
-    pub fn add_child(&mut self, parent: NodeId, label: String, user_content: Option<String>) -> NodeId {
+    pub fn add_child(
+        &mut self,
+        parent: NodeId,
+        label: String,
+        user_content: Option<String>,
+    ) -> NodeId {
         let id = self.next_id;
         self.next_id += 1;
         let node = Node {
@@ -62,6 +81,7 @@ impl ConversationTree {
             label,
             user_content,
             assistant_content: None,
+            learning_metadata: None,
         };
         self.nodes.insert(id, node);
         if let Some(p) = self.nodes.get_mut(&parent) {
@@ -71,7 +91,12 @@ impl ConversationTree {
     }
 
     /// Creates a merge node as a child of `parent`, referencing `merged_from` as the secondary branch.
-    pub fn add_merge_child(&mut self, parent: NodeId, merged_from: NodeId, label: String) -> NodeId {
+    pub fn add_merge_child(
+        &mut self,
+        parent: NodeId,
+        merged_from: NodeId,
+        label: String,
+    ) -> NodeId {
         let id = self.next_id;
         self.next_id += 1;
         let node = Node {
@@ -83,12 +108,25 @@ impl ConversationTree {
             label,
             user_content: None,
             assistant_content: None,
+            learning_metadata: None,
         };
         self.nodes.insert(id, node);
         if let Some(p) = self.nodes.get_mut(&parent) {
             p.children.push(id);
         }
         id
+    }
+
+    pub fn set_assistant_content(&mut self, id: NodeId, content: String) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.assistant_content = Some(content);
+        }
+    }
+
+    pub fn set_learning_metadata(&mut self, id: NodeId, metadata: LearningMetadata) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.learning_metadata = Some(metadata);
+        }
     }
 
     /// Returns node IDs from root to `active`, inclusive.
@@ -126,7 +164,8 @@ impl ConversationTree {
 
     /// Find a node whose hash starts with `prefix`.
     pub fn find_by_hash(&self, prefix: &str) -> Option<NodeId> {
-        self.nodes.values()
+        self.nodes
+            .values()
             .find(|n| n.hash.starts_with(prefix))
             .map(|n| n.id)
     }
@@ -152,9 +191,11 @@ impl ConversationTree {
             match children.as_slice() {
                 [] => return Err(format!("already at head after {step} step(s)")),
                 [only] => current = *only,
-                _ => return Err(format!(
-                    "multiple branches at step {step} — use `/jump <hash>` to specify"
-                )),
+                _ => {
+                    return Err(format!(
+                        "multiple branches at step {step} — use `/jump <hash>` to specify"
+                    ));
+                }
             }
         }
         self.active = current;
