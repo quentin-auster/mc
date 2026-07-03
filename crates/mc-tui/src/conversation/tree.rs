@@ -8,6 +8,23 @@ pub struct LearningMetadata {
     pub expected_direction: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ActivityKind {
+    System,
+    Shell,
+    File,
+    Diff,
+    Provider,
+}
+
+#[derive(Clone, Debug)]
+pub struct ActivityAction {
+    pub kind: ActivityKind,
+    pub title: String,
+    pub detail: String,
+    pub expanded: bool,
+}
+
 pub struct Node {
     pub id: NodeId,
     pub hash: String,
@@ -20,6 +37,10 @@ pub struct Node {
     pub user_content: Option<String>,
     /// Filled when the assistant responds (API not yet wired).
     pub assistant_content: Option<String>,
+    /// Actions, artifacts, and command results associated with this turn.
+    pub actions: Vec<ActivityAction>,
+    pub prompt_expanded: bool,
+    pub response_expanded: bool,
     /// Present for learning-mode turns so follow-up commands can reveal scaffolded guidance.
     pub learning_metadata: Option<LearningMetadata>,
 }
@@ -52,6 +73,9 @@ impl ConversationTree {
             label: "root".to_string(),
             user_content: None,
             assistant_content: None,
+            actions: Vec::new(),
+            prompt_expanded: false,
+            response_expanded: false,
             learning_metadata: None,
         };
         let mut nodes = HashMap::new();
@@ -81,6 +105,9 @@ impl ConversationTree {
             label,
             user_content,
             assistant_content: None,
+            actions: Vec::new(),
+            prompt_expanded: false,
+            response_expanded: false,
             learning_metadata: None,
         };
         self.nodes.insert(id, node);
@@ -108,6 +135,9 @@ impl ConversationTree {
             label,
             user_content: None,
             assistant_content: None,
+            actions: Vec::new(),
+            prompt_expanded: false,
+            response_expanded: false,
             learning_metadata: None,
         };
         self.nodes.insert(id, node);
@@ -121,6 +151,35 @@ impl ConversationTree {
         if let Some(node) = self.nodes.get_mut(&id) {
             node.assistant_content = Some(content);
         }
+    }
+
+    pub fn add_action(&mut self, id: NodeId, action: ActivityAction) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.actions.push(action);
+        }
+    }
+
+    pub fn set_prompt_expanded(&mut self, id: NodeId, expanded: bool) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.prompt_expanded = expanded;
+        }
+    }
+
+    pub fn set_response_expanded(&mut self, id: NodeId, expanded: bool) {
+        if let Some(node) = self.nodes.get_mut(&id) {
+            node.response_expanded = expanded;
+        }
+    }
+
+    pub fn set_action_expanded(&mut self, id: NodeId, index: usize, expanded: bool) -> bool {
+        let Some(node) = self.nodes.get_mut(&id) else {
+            return false;
+        };
+        let Some(action) = node.actions.get_mut(index) else {
+            return false;
+        };
+        action.expanded = expanded;
+        true
     }
 
     pub fn set_learning_metadata(&mut self, id: NodeId, metadata: LearningMetadata) {

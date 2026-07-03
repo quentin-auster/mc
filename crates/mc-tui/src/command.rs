@@ -65,8 +65,31 @@ pub enum Command {
         path: String,
         content: String,
     },
+    BufferSet {
+        line: usize,
+        content: String,
+    },
+    BufferInsert {
+        line: usize,
+        content: String,
+    },
+    BufferDelete {
+        line: usize,
+    },
+    View(String),
+    Expand(ExpandTarget),
+    Collapse(ExpandTarget),
+    Save,
     Quit,
     Unknown(String),
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum ExpandTarget {
+    Prompt,
+    Response,
+    Actions,
+    Action(usize),
 }
 
 pub fn parse(input: &str) -> Command {
@@ -175,6 +198,29 @@ pub fn parse(input: &str) -> Command {
         }
         "read" => parse_file_read(arg).unwrap_or_else(Command::Unknown),
         "write" => parse_file_write(arg).unwrap_or_else(Command::Unknown),
+        "edit" => parse_buffer_line_content(arg, "edit")
+            .map(|(line, content)| Command::BufferSet { line, content })
+            .unwrap_or_else(Command::Unknown),
+        "insert" => parse_buffer_line_content(arg, "insert")
+            .map(|(line, content)| Command::BufferInsert { line, content })
+            .unwrap_or_else(Command::Unknown),
+        "delete" => parse_buffer_line(arg, "delete")
+            .map(|line| Command::BufferDelete { line })
+            .unwrap_or_else(Command::Unknown),
+        "view" => {
+            if arg.is_empty() {
+                Command::Unknown("view requires one of: activity, file".into())
+            } else {
+                Command::View(arg.to_string())
+            }
+        }
+        "expand" => parse_expand_target(arg)
+            .map(Command::Expand)
+            .unwrap_or_else(Command::Unknown),
+        "collapse" => parse_expand_target(arg)
+            .map(Command::Collapse)
+            .unwrap_or_else(Command::Unknown),
+        "save" | "w" => Command::Save,
         "quit" | "q" | "exit" => Command::Quit,
         _ => Command::Unknown(name),
     }
@@ -287,6 +333,42 @@ fn parse_file_write(arg: &str) -> Result<Command, String> {
     })
 }
 
+fn parse_buffer_line_content(arg: &str, command: &str) -> Result<(usize, String), String> {
+    let mut parts = arg.splitn(2, char::is_whitespace);
+    let line = parse_buffer_line(parts.next().unwrap_or(""), command)?;
+    let content = parts.next().unwrap_or("").trim_start();
+    if content.is_empty() {
+        return Err(format!("{command} requires: /{command} <line> <content>"));
+    }
+    Ok((line, content.to_string()))
+}
+
+fn parse_buffer_line(arg: &str, command: &str) -> Result<usize, String> {
+    let line = arg
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| format!("{command} line must be a positive number"))?;
+    if line == 0 {
+        return Err(format!("{command} line must be a positive number"));
+    }
+    Ok(line)
+}
+
+fn parse_expand_target(arg: &str) -> Result<ExpandTarget, String> {
+    match arg.trim() {
+        "" => Ok(ExpandTarget::Actions),
+        "prompt" | "question" => Ok(ExpandTarget::Prompt),
+        "response" | "answer" => Ok(ExpandTarget::Response),
+        "actions" | "action" => Ok(ExpandTarget::Actions),
+        raw => raw
+            .parse::<usize>()
+            .map(|n| ExpandTarget::Action(n.saturating_sub(1)))
+            .map_err(|_| {
+                "expand target must be prompt, response, actions, or an action number".to_string()
+            }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,6 +433,28 @@ mod tests {
         match parse("/provider openai") {
             Command::Provider(Some(Provider::OpenAi)) => {}
             _ => panic!("expected provider command"),
+        }
+    }
+
+    #[test]
+    fn parses_expand_target() {
+        assert_eq!(parse_expand_target("prompt"), Ok(ExpandTarget::Prompt));
+        assert_eq!(parse_expand_target("2"), Ok(ExpandTarget::Action(1)));
+    }
+
+    #[test]
+    fn parses_buffer_edit_commands() {
+        match parse("/edit 2 hello") {
+            Command::BufferSet { line, content } => {
+                assert_eq!(line, 2);
+                assert_eq!(content, "hello");
+            }
+            _ => panic!("expected buffer set command"),
+        }
+
+        match parse("/delete 3") {
+            Command::BufferDelete { line } => assert_eq!(line, 3),
+            _ => panic!("expected buffer delete command"),
         }
     }
 }

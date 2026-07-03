@@ -11,7 +11,7 @@ use ratatui::layout::Rect;
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::time::Duration;
 
-use crate::app::{App, Panel};
+use crate::app::{App, MainView, Panel};
 
 pub async fn run(app: &mut App) -> Result<()> {
     enable_raw_mode()?;
@@ -79,7 +79,30 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
             }
             _ => {}
         },
+        Panel::Files => match key.code {
+            KeyCode::Up => {
+                app.fs_cursor_up();
+                return;
+            }
+            KeyCode::Down => {
+                app.fs_cursor_down();
+                return;
+            }
+            KeyCode::Enter => {
+                app.fs_cursor_open();
+                return;
+            }
+            _ => {}
+        },
         Panel::Chat => match key.code {
+            KeyCode::Up if matches!(app.main_view, MainView::File) => {
+                app.file_cursor_up();
+                return;
+            }
+            KeyCode::Down if matches!(app.main_view, MainView::File) => {
+                app.file_cursor_down();
+                return;
+            }
             KeyCode::Left if is_word_jump(key.modifiers) => {
                 app.cursor_word_left();
                 return;
@@ -110,6 +133,7 @@ fn handle_key(app: &mut App, key: event::KeyEvent) {
 
     match key.code {
         KeyCode::Esc => app.should_quit = true,
+        KeyCode::F(2) => app.toggle_main_view(),
         KeyCode::Tab => app.toggle_panel(),
         KeyCode::Enter => app.process_input(),
         KeyCode::Backspace => {
@@ -151,6 +175,15 @@ fn handle_mouse(app: &mut App, mouse: MouseEvent) {
         .is_some_and(|area| contains(area, mouse.column, mouse.row))
     {
         app.click_tree_row(mouse.row);
+        return;
+    }
+
+    if app
+        .layout
+        .files
+        .is_some_and(|area| contains(area, mouse.column, mouse.row))
+    {
+        app.click_fs_row(mouse.row);
     }
 }
 

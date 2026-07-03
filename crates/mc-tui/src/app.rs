@@ -1,13 +1,15 @@
 use std::fs;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command as ShellCommand;
 
 use ratatui::layout::Rect;
 
 use crate::agent::AgentMode;
-use crate::command::{self, Command, JumpTarget};
+use crate::command::{self, Command, ExpandTarget, JumpTarget};
 use crate::context::{self, ContextLedger};
-use crate::conversation::tree::{ConversationTree, LearningMetadata, NodeId};
+use crate::conversation::tree::{
+    ActivityAction, ActivityKind, ConversationTree, LearningMetadata, NodeId,
+};
 use crate::diff::{self, DiffEntry};
 use crate::edit::{self, EditOp, EditStrategy};
 use crate::provider::Provider;
@@ -17,6 +19,13 @@ use crate::vim::{self, VimCommand};
 pub enum Panel {
     Chat,
     Tree,
+    Files,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum MainView {
+    Activity,
+    File,
 }
 
 pub struct Status {
@@ -24,14 +33,51 @@ pub struct Status {
     pub is_error: bool,
 }
 
-pub struct ShellEntry {
-    pub command: String,
-    pub output: String,
-    pub success: bool,
+pub struct FileBuffer {
+    pub path: String,
+    pub content: String,
+    pub original: String,
+    pub cursor_line: usize,
+}
+
+impl FileBuffer {
+    pub fn is_dirty(&self) -> bool {
+        self.content != self.original
+    }
+}
+
+pub struct FsEntry {
+    pub path: String,
+    pub name: String,
+    pub is_dir: bool,
+}
+
+pub struct FsState {
+    pub current_dir: String,
+    pub cursor: usize,
+    pub entries: Vec<FsEntry>,
+}
+
+impl FsState {
+    fn new() -> Self {
+        let mut state = Self {
+            current_dir: String::new(),
+            cursor: 0,
+            entries: Vec::new(),
+        };
+        state.refresh();
+        state
+    }
+
+    fn refresh(&mut self) {
+        self.entries = list_workspace_dir(&self.current_dir).unwrap_or_default();
+        self.cursor = self.cursor.min(self.entries.len().saturating_sub(1));
+    }
 }
 
 pub struct App {
     pub active_panel: Panel,
+    pub main_view: MainView,
     pub input: String,
     pub input_cursor: usize,
     pub tree: ConversationTree,
@@ -43,14 +89,12 @@ pub struct App {
     pub status: Option<Status>,
     /// Cursor index into `tree.display_entries()`. Used for tree panel navigation.
     pub tree_cursor: usize,
-    /// Shell command output log. Persists for the session regardless of active branch.
-    pub shell_log: Vec<ShellEntry>,
-    pub system_log: Vec<String>,
-    pub diff_log: Vec<DiffEntry>,
     /// Structured context gathered through read-only harness commands.
     pub context_ledger: ContextLedger,
     /// File selected by compact edit commands such as `:e`.
     pub open_file: Option<String>,
+    pub file_buffer: Option<FileBuffer>,
+    pub fs: FsState,
     pub layout: LayoutState,
     /// Last 10 inputs, oldest first.
     pub history: Vec<String>,
@@ -65,6 +109,7 @@ impl App {
     pub fn new() -> Self {
         Self {
             active_panel: Panel::Chat,
+            main_view: MainView::Activity,
             input: String::new(),
             input_cursor: 0,
             tree: ConversationTree::new(),
@@ -74,11 +119,10 @@ impl App {
             model: None,
             status: None,
             tree_cursor: 0,
-            shell_log: Vec::new(),
-            system_log: Vec::new(),
-            diff_log: Vec::new(),
             context_ledger: ContextLedger::new(),
             open_file: None,
+            file_buffer: None,
+            fs: FsState::new(),
             layout: LayoutState::default(),
             history: Vec::new(),
             history_pos: None,
@@ -90,7 +134,15 @@ impl App {
     pub fn toggle_panel(&mut self) {
         self.active_panel = match self.active_panel {
             Panel::Chat => Panel::Tree,
-            Panel::Tree => Panel::Chat,
+            Panel::Tree => Panel::Files,
+            Panel::Files => Panel::Chat,
+        };
+    }
+
+    pub fn toggle_main_view(&mut self) {
+        self.main_view = match self.main_view {
+            MainView::Activity => MainView::File,
+            MainView::File => MainView::Activity,
         };
     }
 
@@ -245,12 +297,53 @@ impl App {
         }
     }
 
+    pub fn fs_cursor_up(&mut self) {
+        self.fs.cursor = self.fs.cursor.saturating_sub(1);
+    }
+
+    pub fn fs_cursor_down(&mut self) {
+        let max = self.fs.entries.len().saturating_sub(1);
+        if self.fs.cursor < max {
+            self.fs.cursor += 1;
+        }
+    }
+
+    pub fn fs_cursor_open(&mut self) {
+        let Some(entry) = self.fs.entries.get(self.fs.cursor) else {
+            return;
+        };
+        if entry.is_dir {
+            self.open_fs_dir(entry.path.clone());
+        } else {
+            self.handle_file_open(entry.path.clone());
+        }
+    }
+
+    pub fn file_cursor_up(&mut self) {
+        if let Some(buffer) = &mut self.file_buffer {
+            buffer.cursor_line = buffer.cursor_line.saturating_sub(1);
+        }
+    }
+
+    pub fn file_cursor_down(&mut self) {
+        if let Some(buffer) = &mut self.file_buffer {
+            let max = buffer.content.lines().count().saturating_sub(1);
+            if buffer.cursor_line < max {
+                buffer.cursor_line += 1;
+            }
+        }
+    }
+
     pub fn focus_chat(&mut self) {
         self.active_panel = Panel::Chat;
     }
 
     pub fn focus_tree(&mut self) {
         self.active_panel = Panel::Tree;
+    }
+
+    pub fn focus_files(&mut self) {
+        self.active_panel = Panel::Files;
     }
 
     pub fn click_tree_row(&mut self, row: u16) {
@@ -271,6 +364,21 @@ impl App {
         }
     }
 
+    pub fn click_fs_row(&mut self, row: u16) {
+        self.focus_files();
+        if let Some(path) = self
+            .layout
+            .fs_rows
+            .iter()
+            .find_map(|(y, path)| (*y == row).then_some(path.clone()))
+        {
+            if let Some(pos) = self.fs.entries.iter().position(|entry| entry.path == path) {
+                self.fs.cursor = pos;
+                self.fs_cursor_open();
+            }
+        }
+    }
+
     fn run_shell(&mut self, cmd: &str) {
         let result = ShellCommand::new("sh").arg("-c").arg(cmd).output();
         match result {
@@ -281,17 +389,20 @@ impl App {
                     output.push_str(&stderr);
                 }
                 let output = output.trim_end().to_string();
-                self.shell_log.push(ShellEntry {
-                    command: cmd.to_string(),
-                    output,
-                    success: out.status.success(),
+                self.add_active_action(ActivityAction {
+                    kind: ActivityKind::Shell,
+                    title: format!("$ {cmd}"),
+                    detail: output,
+                    expanded: false,
                 });
             }
             Err(e) => {
-                self.shell_log.push(ShellEntry {
-                    command: cmd.to_string(),
-                    output: format!("error: {e}"),
-                    success: false,
+                let output = format!("error: {e}");
+                self.add_active_action(ActivityAction {
+                    kind: ActivityKind::Shell,
+                    title: format!("$ {cmd}"),
+                    detail: output,
+                    expanded: true,
                 });
             }
         }
@@ -371,7 +482,15 @@ impl App {
             }
             Command::Context(context_command) => {
                 match context::execute(&context_command, &mut self.context_ledger) {
-                    Ok(message) => self.set_status(message, false),
+                    Ok(message) => {
+                        self.add_active_action(ActivityAction {
+                            kind: ActivityKind::System,
+                            title: "context".to_string(),
+                            detail: message.clone(),
+                            expanded: false,
+                        });
+                        self.set_status(message, false);
+                    }
                     Err(error) => self.set_status(error, true),
                 }
             }
@@ -387,6 +506,13 @@ impl App {
             Command::FileOpen(path) => self.handle_file_open(path),
             Command::FileRead { path, start, end } => self.handle_file_read(path, start, end),
             Command::FileWrite { path, content } => self.handle_file_write(path, content),
+            Command::BufferSet { line, content } => self.handle_buffer_set(line, content),
+            Command::BufferInsert { line, content } => self.handle_buffer_insert(line, content),
+            Command::BufferDelete { line } => self.handle_buffer_delete(line),
+            Command::View(view) => self.handle_view(view),
+            Command::Expand(target) => self.set_expansion(target, true),
+            Command::Collapse(target) => self.set_expansion(target, false),
+            Command::Save => self.handle_file_save(),
             Command::Quit => self.should_quit = true,
             Command::Unknown(msg) => self.set_status(msg, true),
         }
@@ -395,8 +521,7 @@ impl App {
     fn handle_vim_command(&mut self, input: &str) {
         match vim::parse(input) {
             Ok(VimCommand::Edit(EditOp::OpenFile { path })) => {
-                self.open_file = Some(path.clone());
-                self.set_status(format!("open file: {path}"), false);
+                self.handle_file_open(path);
             }
             Ok(VimCommand::Edit(op)) if self.edit_strategy == EditStrategy::Macro => {
                 match self.validate_macro_edit(&op) {
@@ -437,7 +562,13 @@ impl App {
     }
 
     fn show_help(&mut self) {
-        self.system_log.push(help_text());
+        let help = help_text();
+        self.add_active_action(ActivityAction {
+            kind: ActivityKind::System,
+            title: "help".to_string(),
+            detail: help,
+            expanded: true,
+        });
         self.set_status("showing help", false);
     }
 
@@ -450,23 +581,38 @@ impl App {
         } else {
             "missing"
         };
-        self.set_status(
-            format!(
-                "provider: {} ({} {})",
-                self.provider,
-                self.provider.env_var(),
-                available
-            ),
-            !self.provider.has_credentials(),
+        let message = format!(
+            "provider: {} ({} {})",
+            self.provider,
+            self.provider.env_var(),
+            available
         );
+        self.add_active_action(ActivityAction {
+            kind: ActivityKind::Provider,
+            title: "provider".to_string(),
+            detail: message.clone(),
+            expanded: false,
+        });
+        self.set_status(message, !self.provider.has_credentials());
     }
 
     fn handle_file_open(&mut self, path: String) {
         match read_workspace_file(&path) {
             Ok(content) => {
                 self.open_file = Some(path.clone());
-                self.system_log
-                    .push(format!("opened {path}\n{} bytes", content.len()));
+                self.file_buffer = Some(FileBuffer {
+                    path: path.clone(),
+                    content: content.clone(),
+                    original: content.clone(),
+                    cursor_line: 0,
+                });
+                self.main_view = MainView::File;
+                self.add_active_action(ActivityAction {
+                    kind: ActivityKind::File,
+                    title: format!("opened {path}"),
+                    detail: format!("{} bytes", content.len()),
+                    expanded: false,
+                });
                 self.set_status(format!("open file: {path}"), false);
             }
             Err(error) => self.set_status(error, true),
@@ -476,7 +622,12 @@ impl App {
     fn handle_file_read(&mut self, path: String, start: Option<usize>, end: Option<usize>) {
         match read_workspace_file(&path).and_then(|content| select_lines(&content, start, end)) {
             Ok(content) => {
-                self.system_log.push(format!("{path}\n{content}"));
+                self.add_active_action(ActivityAction {
+                    kind: ActivityKind::File,
+                    title: format!("read {path}"),
+                    detail: content,
+                    expanded: false,
+                });
                 self.set_status(format!("read {path}"), false);
             }
             Err(error) => self.set_status(error, true),
@@ -490,11 +641,166 @@ impl App {
             Ok(before)
         }) {
             Ok(before) => {
-                self.diff_log.push(diff::unified(&path, &before, &content));
+                let diff = diff::unified(&path, &before, &content);
+                self.add_active_action(ActivityAction {
+                    kind: ActivityKind::Diff,
+                    title: format!("wrote {path}"),
+                    detail: diff_to_text(&diff),
+                    expanded: false,
+                });
+                if let Some(buffer) = &mut self.file_buffer {
+                    if buffer.path == path {
+                        buffer.content = content.clone();
+                        buffer.original = content;
+                    }
+                }
                 self.set_status(format!("wrote {path}"), false);
             }
             Err(error) => self.set_status(error, true),
         }
+    }
+
+    fn handle_file_save(&mut self) {
+        let Some(buffer) = &self.file_buffer else {
+            self.set_status("no open file buffer to save", true);
+            return;
+        };
+        let path = buffer.path.clone();
+        let content = buffer.content.clone();
+        match ensure_workspace_relative(&path).and_then(|()| {
+            fs::write(&path, &content).map_err(|e| format!("failed to write {path}: {e}"))
+        }) {
+            Ok(()) => {
+                let before = self
+                    .file_buffer
+                    .as_ref()
+                    .map(|buffer| buffer.original.clone())
+                    .unwrap_or_default();
+                let diff = diff::unified(&path, &before, &content);
+                self.add_active_action(ActivityAction {
+                    kind: ActivityKind::Diff,
+                    title: format!("saved {path}"),
+                    detail: diff_to_text(&diff),
+                    expanded: false,
+                });
+                if let Some(buffer) = &mut self.file_buffer {
+                    buffer.original = buffer.content.clone();
+                }
+                self.set_status(format!("saved {path}"), false);
+            }
+            Err(error) => self.set_status(error, true),
+        }
+    }
+
+    fn handle_buffer_set(&mut self, line: usize, content: String) {
+        match self.edit_buffer(|lines| {
+            if line > lines.len() {
+                return Err(format!("line {line} is outside the buffer"));
+            }
+            lines[line - 1] = content;
+            Ok(())
+        }) {
+            Ok(()) => self.set_status(format!("edited line {line}"), false),
+            Err(error) => self.set_status(error, true),
+        }
+    }
+
+    fn handle_buffer_insert(&mut self, line: usize, content: String) {
+        match self.edit_buffer(|lines| {
+            if line > lines.len() + 1 {
+                return Err(format!("line {line} is outside the buffer"));
+            }
+            lines.insert(line - 1, content);
+            Ok(())
+        }) {
+            Ok(()) => self.set_status(format!("inserted line {line}"), false),
+            Err(error) => self.set_status(error, true),
+        }
+    }
+
+    fn handle_buffer_delete(&mut self, line: usize) {
+        match self.edit_buffer(|lines| {
+            if line > lines.len() {
+                return Err(format!("line {line} is outside the buffer"));
+            }
+            lines.remove(line - 1);
+            Ok(())
+        }) {
+            Ok(()) => self.set_status(format!("deleted line {line}"), false),
+            Err(error) => self.set_status(error, true),
+        }
+    }
+
+    fn edit_buffer(
+        &mut self,
+        edit: impl FnOnce(&mut Vec<String>) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let Some(buffer) = &mut self.file_buffer else {
+            return Err("no open file buffer; use /open <path>".to_string());
+        };
+        let mut lines = buffer
+            .content
+            .lines()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        if buffer.content.ends_with('\n') {
+            lines.push(String::new());
+        }
+        edit(&mut lines)?;
+        buffer.content = lines.join("\n");
+        buffer.cursor_line = buffer.cursor_line.min(lines.len().saturating_sub(1));
+        self.main_view = MainView::File;
+        Ok(())
+    }
+
+    fn handle_view(&mut self, view: String) {
+        match view.as_str() {
+            "activity" | "chat" => {
+                self.main_view = MainView::Activity;
+                self.set_status("main view: activity", false);
+            }
+            "file" | "edit" => {
+                self.main_view = MainView::File;
+                self.set_status("main view: file", false);
+            }
+            _ => self.set_status("view requires one of: activity, file", true),
+        }
+    }
+
+    fn set_expansion(&mut self, target: ExpandTarget, expanded: bool) {
+        let node_id = self.tree.active;
+        match target {
+            ExpandTarget::Prompt => self.tree.set_prompt_expanded(node_id, expanded),
+            ExpandTarget::Response => self.tree.set_response_expanded(node_id, expanded),
+            ExpandTarget::Actions => {
+                let count = self.tree.nodes[&node_id].actions.len();
+                for index in 0..count {
+                    self.tree.set_action_expanded(node_id, index, expanded);
+                }
+            }
+            ExpandTarget::Action(index) => {
+                if !self.tree.set_action_expanded(node_id, index, expanded) {
+                    self.set_status("no action with that number on active turn", true);
+                    return;
+                }
+            }
+        }
+        self.set_status(if expanded { "expanded" } else { "collapsed" }, false);
+    }
+
+    fn add_active_action(&mut self, action: ActivityAction) {
+        self.tree.add_action(self.tree.active, action);
+    }
+
+    fn open_fs_dir(&mut self, path: String) {
+        if let Err(error) = ensure_workspace_relative(&path) {
+            self.set_status(error, true);
+            return;
+        }
+        self.fs.current_dir = path;
+        self.fs.cursor = 0;
+        self.fs.refresh();
+        self.set_status("filesystem directory changed", false);
     }
 
     fn seed_learning_response(&mut self, id: usize) {
@@ -569,8 +875,10 @@ impl App {
 pub struct LayoutState {
     pub chat: Option<Rect>,
     pub tree: Option<Rect>,
+    pub files: Option<Rect>,
     pub input: Option<Rect>,
     pub tree_rows: Vec<(u16, NodeId)>,
+    pub fs_rows: Vec<(u16, String)>,
 }
 
 enum LearningPart {
@@ -593,6 +901,8 @@ fn help_text() -> String {
         "/wc <path>, /sed <path> <start> <end>, /awk <path> <pattern>",
         "/context list|pin <id>|drop <id>|clear",
         "/open <path>, /read <path> [start end], /write <path> <content>",
+        "/view activity|file, /expand [prompt|response|actions|n], /collapse [...]",
+        "/edit <line> <text>, /insert <line> <text>, /delete <line>, /save",
         ":e <path>, :/pattern/, :%s/foo/bar/g, :2,4d, :2,4c text",
         "!<shell command> - run a shell command",
     ]
@@ -626,6 +936,66 @@ fn ensure_workspace_relative(path: &str) -> Result<(), String> {
 fn read_workspace_file(path: &str) -> Result<String, String> {
     ensure_workspace_relative(path)?;
     fs::read_to_string(path).map_err(|e| format!("failed to read {path}: {e}"))
+}
+
+fn list_workspace_dir(path: &str) -> Result<Vec<FsEntry>, String> {
+    ensure_workspace_relative(path)?;
+    let mut entries = Vec::new();
+    if !path.is_empty() {
+        let parent = Path::new(path)
+            .parent()
+            .map(path_to_workspace_string)
+            .unwrap_or_default();
+        entries.push(FsEntry {
+            path: parent,
+            name: "..".to_string(),
+            is_dir: true,
+        });
+    }
+
+    let read_dir = fs::read_dir(if path.is_empty() { "." } else { path })
+        .map_err(|e| format!("failed to list {path}: {e}"))?;
+    for entry in read_dir {
+        let entry = entry.map_err(|e| format!("failed to read directory entry: {e}"))?;
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        if file_name == ".git" || file_name == "target" {
+            continue;
+        }
+        let entry_path = if path.is_empty() {
+            PathBuf::from(&file_name)
+        } else {
+            Path::new(path).join(&file_name)
+        };
+        let is_dir = entry
+            .file_type()
+            .map_err(|e| format!("failed to inspect {file_name}: {e}"))?
+            .is_dir();
+        entries.push(FsEntry {
+            path: path_to_workspace_string(&entry_path),
+            name: file_name,
+            is_dir,
+        });
+    }
+    entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
+    Ok(entries)
+}
+
+fn path_to_workspace_string(path: impl AsRef<Path>) -> String {
+    path.as_ref()
+        .to_string_lossy()
+        .trim_start_matches("./")
+        .to_string()
+}
+
+fn diff_to_text(diff: &DiffEntry) -> String {
+    let mut lines = vec![format!("path: {}", diff.path)];
+    lines.extend(diff.lines.iter().map(|line| match line {
+        diff::DiffLine::Header(text)
+        | diff::DiffLine::Context(text)
+        | diff::DiffLine::Added(text)
+        | diff::DiffLine::Removed(text) => text.clone(),
+    }));
+    lines.join("\n")
 }
 
 fn select_lines(content: &str, start: Option<usize>, end: Option<usize>) -> Result<String, String> {
