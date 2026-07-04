@@ -3,7 +3,7 @@ use std::fmt;
 use std::fs;
 use std::path::Path;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Provider {
@@ -41,7 +41,7 @@ impl Provider {
     }
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Default, Deserialize, Serialize)]
 pub struct ProviderConfig {
     pub default_provider: Option<String>,
     pub default_model: Option<String>,
@@ -59,6 +59,26 @@ impl ProviderConfig {
             .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
         serde_json::from_str(&content)
             .map_err(|e| format!("failed to parse {}: {e}", path.display()))
+    }
+
+    pub fn save(&self) -> Result<(), String> {
+        let path = Path::new(".mc").join("config.json");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+        }
+        let content = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("failed to serialize provider config: {e}"))?;
+        fs::write(&path, format!("{content}\n"))
+            .map_err(|e| format!("failed to write {}: {e}", path.display()))
+    }
+
+    pub fn set_provider_key(&mut self, provider: Provider, key: String) {
+        self.default_provider = Some(provider.to_string());
+        match provider {
+            Provider::Anthropic => self.anthropic_api_key = Some(key),
+            Provider::OpenAi => self.openai_api_key = Some(key),
+        }
     }
 
     pub fn default_provider(&self) -> Option<Provider> {

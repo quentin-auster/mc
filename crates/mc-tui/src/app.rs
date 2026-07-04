@@ -13,7 +13,7 @@ use crate::conversation::tree::{
 };
 use crate::diff::{self, DiffEntry};
 use crate::edit::{self, EditOp, EditStrategy};
-use crate::provider::Provider;
+use crate::provider::{Provider, ProviderConfig};
 use crate::telemetry::{self, TelemetryRecorder};
 use crate::vim::{self, VimCommand};
 
@@ -60,6 +60,11 @@ pub struct FsState {
     pub entries: Vec<FsEntry>,
 }
 
+pub enum GasStep {
+    ChooseProvider,
+    EnterKey(Provider),
+}
+
 impl FsState {
     fn new() -> Self {
         let mut state = Self {
@@ -87,6 +92,7 @@ pub struct App {
     pub edit_strategy: EditStrategy,
     pub provider: Provider,
     pub model: Option<String>,
+    pub gas_step: Option<GasStep>,
     /// Transient feedback from the last command. Cleared on next message submission.
     pub status: Option<Status>,
     /// Cursor index into `tree.display_entries()`. Used for tree panel navigation.
@@ -124,6 +130,7 @@ impl App {
             edit_strategy: EditStrategy::Patch,
             provider,
             model,
+            gas_step: None,
             status: None,
             tree_cursor: 0,
             context_ledger: ContextLedger::new(),
@@ -156,12 +163,20 @@ impl App {
         };
     }
 
+    pub fn is_secret_input(&self) -> bool {
+        matches!(self.gas_step, Some(GasStep::EnterKey(_)))
+    }
+
     pub fn process_input(&mut self) {
         let input: String = self.input.drain(..).collect();
         self.input_cursor = 0;
         self.history_pos = None;
         self.history_draft = String::new();
         if input.is_empty() {
+            return;
+        }
+        if self.gas_step.is_some() {
+            self.handle_gas_input(input);
             return;
         }
         self.push_history(input.clone());
@@ -526,6 +541,7 @@ impl App {
             Command::Check => self.reveal_learning_part(LearningPart::Check),
             Command::Reveal => self.reveal_learning_part(LearningPart::Reveal),
             Command::Help => self.show_help(),
+            Command::Gas => self.start_gas_setup(),
             Command::Provider(provider) => self.handle_provider(provider),
             Command::Model(model) => {
                 self.model = Some(model.clone());
@@ -624,6 +640,76 @@ impl App {
             expanded: false,
         });
         self.set_status(message, !self.provider.has_credentials());
+    }
+
+    fn start_gas_setup(&mut self) {
+        self.gas_step = Some(GasStep::ChooseProvider);
+        let message = "Connect an API provider: type openai, anthropic, other, or cancel";
+        self.add_active_action(ActivityAction {
+            kind: ActivityKind::Provider,
+            title: "provider setup".to_string(),
+            detail: message.to_string(),
+            expanded: true,
+        });
+        self.set_status(message, false);
+    }
+
+    fn handle_gas_input(&mut self, input: String) {
+        let trimmed = input.trim();
+        if trimmed.eq_ignore_ascii_case("cancel") {
+            self.gas_step = None;
+            self.set_status("provider setup cancelled", false);
+            return;
+        }
+
+        match self.gas_step.take() {
+            Some(GasStep::ChooseProvider) => match Provider::parse(trimmed) {
+                Some(provider) => {
+                    self.gas_step = Some(GasStep::EnterKey(provider));
+                    self.provider = provider;
+                    self.set_status(format!("paste {provider} API key, or type cancel"), false);
+                }
+                None if trimmed.eq_ignore_ascii_case("other") => {
+                    self.add_active_action(ActivityAction {
+                        kind: ActivityKind::Provider,
+                        title: "provider setup".to_string(),
+                        detail: "custom providers are not implemented yet; supported providers are openai and anthropic".to_string(),
+                        expanded: true,
+                    });
+                    self.set_status("custom providers are not implemented yet", true);
+                }
+                None => {
+                    self.gas_step = Some(GasStep::ChooseProvider);
+                    self.set_status("type openai, anthropic, other, or cancel", true);
+                }
+            },
+            Some(GasStep::EnterKey(provider)) => {
+                if trimmed.is_empty() {
+                    self.gas_step = Some(GasStep::EnterKey(provider));
+                    self.set_status("API key cannot be empty; paste key or type cancel", true);
+                    return;
+                }
+                match save_provider_key(provider, trimmed.to_string()) {
+                    Ok(()) => {
+                        self.provider = provider;
+                        self.add_active_action(ActivityAction {
+                            kind: ActivityKind::Provider,
+                            title: "provider setup".to_string(),
+                            detail: format!(
+                                "{provider} credentials saved to .mc/config.json; key value hidden"
+                            ),
+                            expanded: false,
+                        });
+                        self.set_status(
+                            format!("{provider} credentials saved to .mc/config.json"),
+                            false,
+                        );
+                    }
+                    Err(error) => self.set_status(error, true),
+                }
+            }
+            None => {}
+        }
     }
 
     fn handle_file_open(&mut self, path: String) {
@@ -949,6 +1035,7 @@ fn help_text() -> String {
         "/help or ? - show this help",
         "/mode normal|learning - switch collaboration mode",
         "/strategy patch|macro - switch edit strategy",
+        "/gas - guided API provider setup",
         "/provider [anthropic|openai] - inspect or select API provider",
         "/model <name> - select model name",
         "/jump <steps|hash>, /branch [name], /merge <hash>",
@@ -992,6 +1079,12 @@ fn ensure_workspace_relative(path: &str) -> Result<(), String> {
 fn read_workspace_file(path: &str) -> Result<String, String> {
     ensure_workspace_relative(path)?;
     fs::read_to_string(path).map_err(|e| format!("failed to read {path}: {e}"))
+}
+
+fn save_provider_key(provider: Provider, key: String) -> Result<(), String> {
+    let mut config = ProviderConfig::load()?;
+    config.set_provider_key(provider, key);
+    config.save()
 }
 
 fn list_workspace_dir(path: &str) -> Result<Vec<FsEntry>, String> {

@@ -53,6 +53,7 @@ pub enum Command {
     Check,
     Reveal,
     Help,
+    Gas,
     Provider(Option<Provider>),
     Model(String),
     FileOpen(String),
@@ -172,6 +173,7 @@ pub fn parse(input: &str) -> Command {
         "check" => Command::Check,
         "reveal" => Command::Reveal,
         "help" | "?" => Command::Help,
+        "gas" => Command::Gas,
         "provider" => {
             if arg.is_empty() {
                 Command::Provider(None)
@@ -414,6 +416,14 @@ mod tests {
         match parse("?") {
             Command::Help => {}
             _ => panic!("expected help command"),
+        }
+    }
+
+    #[test]
+    fn parses_gas_command() {
+        match parse("/gas") {
+            Command::Gas => {}
+            _ => panic!("expected gas command"),
         }
     }
 

@@ -30,7 +30,12 @@ pub fn render(frame: &mut Frame, app: &mut App, area: Rect) {
         MainView::File => render_file(frame, app, chunks[0], border_style),
     }
 
-    let input = Paragraph::new(format!("> {}", app.input)).block(
+    let input_text = if app.is_secret_input() {
+        "*".repeat(app.input.chars().count())
+    } else {
+        app.input.clone()
+    };
+    let input = Paragraph::new(format!("> {input_text}")).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(border_style),
