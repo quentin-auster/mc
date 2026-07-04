@@ -1,0 +1,12 @@
+{
+  "id": "help-command",
+  "prompt": "Add or update the interactive help command so users can discover available slash commands.",
+  "repository_setup": [
+    "Inspect command parsing and app command handling.",
+    "Update help text and parser tests."
+  ],
+  "strategies": ["patch", "macro"],
+  "context_commands": ["/rg help crates/mc-tui/src", "/sed crates/mc-tui/src/command.rs 1 120"],
+  "verification_command": "cargo test",
+  "expected_edit_bytes": 420
+}

@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command as ShellCommand;
+use std::time::Instant;
 
 use ratatui::layout::Rect;
 
@@ -13,6 +14,7 @@ use crate::conversation::tree::{
 use crate::diff::{self, DiffEntry};
 use crate::edit::{self, EditOp, EditStrategy};
 use crate::provider::Provider;
+use crate::telemetry::{self, TelemetryRecorder};
 use crate::vim::{self, VimCommand};
 
 #[derive(Copy, Clone, PartialEq)]
@@ -95,6 +97,9 @@ pub struct App {
     pub open_file: Option<String>,
     pub file_buffer: Option<FileBuffer>,
     pub fs: FsState,
+    telemetry: TelemetryRecorder,
+    command_count_since_turn: usize,
+    edit_bytes_since_turn: usize,
     pub layout: LayoutState,
     /// Last 10 inputs, oldest first.
     pub history: Vec<String>,
@@ -107,6 +112,8 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        let provider = Provider::default_from_config().unwrap_or(Provider::Anthropic);
+        let model = Provider::default_model_from_config();
         Self {
             active_panel: Panel::Chat,
             main_view: MainView::Activity,
@@ -115,14 +122,17 @@ impl App {
             tree: ConversationTree::new(),
             agent_mode: AgentMode::Normal,
             edit_strategy: EditStrategy::Patch,
-            provider: Provider::Anthropic,
-            model: None,
+            provider,
+            model,
             status: None,
             tree_cursor: 0,
             context_ledger: ContextLedger::new(),
             open_file: None,
             file_buffer: None,
             fs: FsState::new(),
+            telemetry: TelemetryRecorder::default(),
+            command_count_since_turn: 0,
+            edit_bytes_since_turn: 0,
             layout: LayoutState::default(),
             history: Vec::new(),
             history_pos: None,
@@ -156,10 +166,13 @@ impl App {
         }
         self.push_history(input.clone());
         if input.starts_with('!') {
+            self.command_count_since_turn += 1;
             self.run_shell(input[1..].trim());
         } else if input.starts_with(':') {
+            self.command_count_since_turn += 1;
             self.handle_vim_command(&input);
         } else if input.starts_with('/') || input.trim() == "?" {
+            self.command_count_since_turn += 1;
             self.handle_command(&input);
         } else {
             self.status = None;
@@ -380,6 +393,19 @@ impl App {
     }
 
     fn run_shell(&mut self, cmd: &str) {
+        if std::env::var("MC_ENABLE_SHELL").as_deref() != Ok("1") {
+            let message =
+                "shell execution is disabled; use safe context commands or set MC_ENABLE_SHELL=1";
+            self.add_active_action(ActivityAction {
+                kind: ActivityKind::System,
+                title: "blocked shell command".to_string(),
+                detail: format!("!{cmd}\n{message}"),
+                expanded: true,
+            });
+            self.set_status(message, true);
+            return;
+        }
+
         let result = ShellCommand::new("sh").arg("-c").arg(cmd).output();
         match result {
             Ok(out) => {
@@ -419,6 +445,7 @@ impl App {
     }
 
     fn submit_message(&mut self, content: String) {
+        let started = Instant::now();
         let label = truncate_label(&content, 20);
         let parent = self.tree.active;
         let id = self.tree.add_child(parent, label, Some(content));
@@ -426,6 +453,7 @@ impl App {
         if self.agent_mode == AgentMode::Learning {
             self.seed_learning_response(id);
         }
+        self.record_turn_telemetry(id, started.elapsed().as_millis());
         self.sync_cursor();
     }
 
@@ -577,9 +605,11 @@ impl App {
             self.provider = provider;
         }
         let available = if self.provider.has_credentials() {
-            "available"
+            self.provider
+                .credential_source()
+                .unwrap_or_else(|| "available".to_string())
         } else {
-            "missing"
+            "missing".to_string()
         };
         let message = format!(
             "provider: {} ({} {})",
@@ -642,6 +672,7 @@ impl App {
         }) {
             Ok(before) => {
                 let diff = diff::unified(&path, &before, &content);
+                self.edit_bytes_since_turn += before.len().abs_diff(content.len());
                 self.add_active_action(ActivityAction {
                     kind: ActivityKind::Diff,
                     title: format!("wrote {path}"),
@@ -677,6 +708,7 @@ impl App {
                     .map(|buffer| buffer.original.clone())
                     .unwrap_or_default();
                 let diff = diff::unified(&path, &before, &content);
+                self.edit_bytes_since_turn += before.len().abs_diff(content.len());
                 self.add_active_action(ActivityAction {
                     kind: ActivityKind::Diff,
                     title: format!("saved {path}"),
@@ -792,6 +824,30 @@ impl App {
         self.tree.add_action(self.tree.active, action);
     }
 
+    fn record_turn_telemetry(&mut self, node_id: NodeId, wall_time_ms: u128) {
+        let node = &self.tree.nodes[&node_id];
+        let prompt = node.user_content.as_deref().unwrap_or_default();
+        let completion = node.assistant_content.as_deref();
+        let record = telemetry::turn_record(
+            node.hash.clone(),
+            self.edit_strategy,
+            self.agent_mode,
+            prompt,
+            completion,
+            self.context_ledger.estimated_tokens(),
+            wall_time_ms,
+            self.command_count_since_turn,
+            self.edit_bytes_since_turn,
+        );
+        match self.telemetry.append(&record) {
+            Ok(()) => {
+                self.command_count_since_turn = 0;
+                self.edit_bytes_since_turn = 0;
+            }
+            Err(error) => self.set_status(error, true),
+        }
+    }
+
     fn open_fs_dir(&mut self, path: String) {
         if let Err(error) = ensure_workspace_relative(&path) {
             self.set_status(error, true);
@@ -904,7 +960,7 @@ fn help_text() -> String {
         "/view activity|file, /expand [prompt|response|actions|n], /collapse [...]",
         "/edit <line> <text>, /insert <line> <text>, /delete <line>, /save",
         ":e <path>, :/pattern/, :%s/foo/bar/g, :2,4d, :2,4c text",
-        "!<shell command> - run a shell command",
+        "!<shell command> - run a shell command only when MC_ENABLE_SHELL=1",
     ]
     .join("\n")
 }

@@ -91,11 +91,7 @@ impl ContextLedger {
             return "context: empty".to_string();
         }
 
-        let tokens: usize = self
-            .packets
-            .iter()
-            .map(|packet| packet.estimated_tokens)
-            .sum();
+        let tokens = self.estimated_tokens();
         let pinned = self.packets.iter().filter(|packet| packet.pinned).count();
         format!(
             "context: {} packet(s), ~{} tokens, {} pinned",
@@ -141,6 +137,13 @@ impl ContextLedger {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    pub fn estimated_tokens(&self) -> usize {
+        self.packets
+            .iter()
+            .map(|packet| packet.estimated_tokens)
+            .sum()
     }
 }
 

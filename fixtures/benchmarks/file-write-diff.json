@@ -1,0 +1,12 @@
+{
+  "id": "file-write-diff",
+  "prompt": "Show a red/green diff when the harness writes a file in the workspace.",
+  "repository_setup": [
+    "Inspect file write handling in app state.",
+    "Inspect the UI renderer for diff display."
+  ],
+  "strategies": ["patch", "macro"],
+  "context_commands": ["/rg FileWrite crates/mc-tui/src", "/sed crates/mc-tui/src/app.rs 450 540"],
+  "verification_command": "cargo test",
+  "expected_edit_bytes": 520
+}
