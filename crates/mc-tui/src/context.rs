@@ -72,6 +72,31 @@ impl ContextLedger {
         Ok(())
     }
 
+    pub fn unpin(&mut self, id: usize) -> Result<(), String> {
+        let packet = self
+            .packets
+            .iter_mut()
+            .find(|packet| packet.id == id)
+            .ok_or_else(|| format!("no context packet #{id}"))?;
+        packet.pinned = false;
+        Ok(())
+    }
+
+    pub fn unpin_path(&mut self, path: &str) -> Result<usize, String> {
+        let mut count = 0;
+        for packet in &mut self.packets {
+            if packet.paths.iter().any(|packet_path| packet_path == path) && packet.pinned {
+                packet.pinned = false;
+                count += 1;
+            }
+        }
+        if count == 0 {
+            Err(format!("no pinned context source for {path}"))
+        } else {
+            Ok(count)
+        }
+    }
+
     pub fn drop(&mut self, id: usize) -> Result<(), String> {
         let len = self.packets.len();
         self.packets.retain(|packet| packet.id != id);
@@ -156,6 +181,8 @@ pub fn execute(command: &ContextCommand, ledger: &mut ContextLedger) -> Result<S
         ContextCommand::Wc { path } => record_wc(path, ledger),
         ContextCommand::Sed { path, start, end } => record_sed(path, *start, *end, ledger),
         ContextCommand::Awk { path, pattern } => record_awk(path, pattern, ledger),
+        ContextCommand::PinFile(path) => record_pinned_file(path, ledger),
+        ContextCommand::UnpinFile(path) => unpin_file(path, ledger),
         ContextCommand::Ledger(action) => execute_ledger(action, ledger),
     }
 }
@@ -166,6 +193,10 @@ fn execute_ledger(action: &ContextAction, ledger: &mut ContextLedger) -> Result<
         ContextAction::Pin(id) => {
             ledger.pin(*id)?;
             Ok(format!("pinned context packet #{id}"))
+        }
+        ContextAction::Unpin(id) => {
+            ledger.unpin(*id)?;
+            Ok(format!("unpinned context packet #{id}"))
         }
         ContextAction::Drop(id) => {
             ledger.drop(*id)?;
@@ -315,6 +346,23 @@ fn record_awk(path: &str, pattern: &str, ledger: &mut ContextLedger) -> Result<S
     Ok(format!("recorded context packet #{id} from /awk {path}"))
 }
 
+fn record_pinned_file(path: &str, ledger: &mut ContextLedger) -> Result<String, String> {
+    let content = read_workspace_file(path)?;
+    let id = ledger.record(
+        format!("/pin {path}"),
+        vec![path.to_string()],
+        None,
+        content,
+    );
+    ledger.pin(id)?;
+    Ok(format!("pinned context source #{id} from {path}"))
+}
+
+fn unpin_file(path: &str, ledger: &mut ContextLedger) -> Result<String, String> {
+    let count = ledger.unpin_path(path)?;
+    Ok(format!("unpinned {count} context source(s) for {path}"))
+}
+
 fn collect_files(path: &Path, filter: Option<&str>, out: &mut Vec<String>) -> Result<(), String> {
     for entry in
         fs::read_dir(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?
@@ -407,6 +455,8 @@ mod tests {
         ledger.clear();
         assert_eq!(ledger.packets.len(), 1);
         assert!(ledger.packets[0].pinned);
+        ledger.unpin(id).unwrap();
+        assert!(!ledger.packets[0].pinned);
     }
 
     #[test]
@@ -421,5 +471,20 @@ mod tests {
 
         ledger.drop(id).unwrap();
         assert!(ledger.packets.is_empty());
+    }
+
+    #[test]
+    fn ledger_unpins_by_path() {
+        let mut ledger = ContextLedger::new();
+        let id = ledger.record(
+            "/pin Cargo.toml".to_string(),
+            vec!["Cargo.toml".to_string()],
+            None,
+            "Cargo.toml".to_string(),
+        );
+        ledger.pin(id).unwrap();
+
+        assert_eq!(ledger.unpin_path("Cargo.toml").unwrap(), 1);
+        assert!(!ledger.packets[0].pinned);
     }
 }

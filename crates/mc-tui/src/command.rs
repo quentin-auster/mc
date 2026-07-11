@@ -11,6 +11,7 @@ pub enum JumpTarget {
 pub enum ContextAction {
     List,
     Pin(usize),
+    Unpin(usize),
     Drop(usize),
     Clear,
 }
@@ -39,6 +40,8 @@ pub enum ContextCommand {
         path: String,
         pattern: String,
     },
+    PinFile(String),
+    UnpinFile(String),
     Ledger(ContextAction),
 }
 
@@ -166,6 +169,20 @@ pub fn parse(input: &str) -> Command {
         "awk" => parse_awk(arg)
             .map(|(path, pattern)| Command::Context(ContextCommand::Awk { path, pattern }))
             .unwrap_or_else(Command::Unknown),
+        "pin" => {
+            if arg.is_empty() {
+                Command::Unknown("pin requires a path: /pin <path>".into())
+            } else {
+                Command::Context(ContextCommand::PinFile(arg.to_string()))
+            }
+        }
+        "unpin" => {
+            if arg.is_empty() {
+                Command::Unknown("unpin requires a path: /unpin <path>".into())
+            } else {
+                Command::Context(ContextCommand::UnpinFile(arg.to_string()))
+            }
+        }
         "context" | "ctx" => parse_context_action(arg)
             .map(|action| Command::Context(ContextCommand::Ledger(action)))
             .unwrap_or_else(Command::Unknown),
@@ -281,6 +298,7 @@ fn parse_context_action(arg: &str) -> Result<ContextAction, String> {
     match parts.next().unwrap_or("") {
         "list" | "" => Ok(ContextAction::List),
         "pin" => parse_context_id(parts.next(), "pin").map(ContextAction::Pin),
+        "unpin" => parse_context_id(parts.next(), "unpin").map(ContextAction::Unpin),
         "drop" => parse_context_id(parts.next(), "drop").map(ContextAction::Drop),
         "clear" => Ok(ContextAction::Clear),
         other => Err(format!("unknown context action '{other}'")),
@@ -408,6 +426,22 @@ mod tests {
         match parse("/context pin 3") {
             Command::Context(ContextCommand::Ledger(ContextAction::Pin(3))) => {}
             _ => panic!("expected context pin command"),
+        }
+        match parse("/ctx unpin 3") {
+            Command::Context(ContextCommand::Ledger(ContextAction::Unpin(3))) => {}
+            _ => panic!("expected context unpin command"),
+        }
+    }
+
+    #[test]
+    fn parses_pin_file_commands() {
+        match parse("/pin Cargo.toml") {
+            Command::Context(ContextCommand::PinFile(path)) => assert_eq!(path, "Cargo.toml"),
+            _ => panic!("expected pin file command"),
+        }
+        match parse("/unpin Cargo.toml") {
+            Command::Context(ContextCommand::UnpinFile(path)) => assert_eq!(path, "Cargo.toml"),
+            _ => panic!("expected unpin file command"),
         }
     }
 
