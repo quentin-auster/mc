@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::edit::EditStrategy;
 use crate::telemetry::{self, TelemetryRecord, TelemetryRecorder};
+use crate::token;
 
 #[derive(Debug, Deserialize)]
 struct Fixture {
@@ -85,7 +86,7 @@ fn benchmark_record(
     let setup_tokens = fixture
         .repository_setup
         .as_ref()
-        .map(|steps| telemetry::estimate_tokens(steps.join("\n").len()))
+        .map(|steps| token::estimate_text(&steps.join("\n")))
         .unwrap_or(0);
     let mut record = telemetry::turn_record(
         fixture.id.clone(),

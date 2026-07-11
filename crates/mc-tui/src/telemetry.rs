@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::AgentMode;
 use crate::edit::EditStrategy;
+use crate::token;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TelemetryRecord {
@@ -69,10 +70,8 @@ pub fn turn_record(
     command_count: usize,
     edit_bytes: usize,
 ) -> TelemetryRecord {
-    let prompt_tokens = estimate_tokens(prompt.len()) + context_tokens;
-    let completion_tokens = completion
-        .map(|text| estimate_tokens(text.len()))
-        .unwrap_or(0);
+    let prompt_tokens = token::estimate_text(prompt) + context_tokens;
+    let completion_tokens = completion.map(token::estimate_text).unwrap_or(0);
     TelemetryRecord {
         schema_version: 1,
         timestamp_secs: now_secs(),
@@ -90,10 +89,6 @@ pub fn turn_record(
     }
 }
 
-pub fn estimate_tokens(bytes: usize) -> usize {
-    bytes.div_ceil(4)
-}
-
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -107,8 +102,8 @@ mod tests {
 
     #[test]
     fn estimates_tokens_from_bytes() {
-        assert_eq!(estimate_tokens(0), 0);
-        assert_eq!(estimate_tokens(1), 1);
-        assert_eq!(estimate_tokens(8), 2);
+        assert_eq!(token::estimate_bytes(0), 0);
+        assert_eq!(token::estimate_bytes(1), 1);
+        assert_eq!(token::estimate_bytes(8), 2);
     }
 }

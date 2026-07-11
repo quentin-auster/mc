@@ -4,6 +4,7 @@ use std::process::Command as ShellCommand;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::command::{ContextAction, ContextCommand};
+use crate::token;
 
 const OUTPUT_LIMIT_BYTES: usize = 12_000;
 const MAX_LISTED_FILES: usize = 200;
@@ -53,7 +54,7 @@ impl ContextLedger {
             paths,
             line_range,
             byte_count,
-            estimated_tokens: estimate_tokens(byte_count),
+            estimated_tokens: token::estimate_bytes(byte_count),
             timestamp_secs: now_secs(),
             pinned: false,
             output,
@@ -374,10 +375,6 @@ fn truncate_output(output: String) -> (String, bool) {
     truncated.truncate(OUTPUT_LIMIT_BYTES);
     truncated.push_str("\n... output truncated");
     (truncated, true)
-}
-
-fn estimate_tokens(bytes: usize) -> usize {
-    bytes.div_ceil(4)
 }
 
 fn now_secs() -> u64 {

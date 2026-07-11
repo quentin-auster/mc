@@ -8,6 +8,7 @@ mod diff;
 mod edit;
 mod provider;
 mod telemetry;
+mod token;
 mod tui;
 mod ui;
 mod vim;
