@@ -1042,7 +1042,7 @@ fn help_text() -> String {
         "/hint, /check, /reveal - learning-mode guidance",
         "/rg <pattern>, /files [filter], /head <path> [n], /tail <path> [n]",
         "/wc <path>, /sed <path> <start> <end>, /awk <path> <pattern>",
-        "/context list|pin <id>|drop <id>|clear",
+        "/pin <path>, /unpin <path>, /context list|pin <id>|unpin <id>|drop <id>|clear",
         "/open <path>, /read <path> [start end], /write <path> <content>",
         "/view activity|file, /expand [prompt|response|actions|n], /collapse [...]",
         "/edit <line> <text>, /insert <line> <text>, /delete <line>, /save",
