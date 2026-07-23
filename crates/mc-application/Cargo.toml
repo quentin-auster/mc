@@ -1,0 +1,11 @@
+[package]
+name = "mc-application"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+mc-domain = { path = "../mc-domain" }
+
+[lints]
+workspace = true
