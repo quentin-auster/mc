@@ -6,6 +6,7 @@ mod context;
 mod conversation;
 mod diff;
 mod edit;
+mod prompt_plan;
 mod provider;
 mod telemetry;
 mod token;

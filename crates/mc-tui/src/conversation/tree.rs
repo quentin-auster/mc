@@ -190,8 +190,13 @@ impl ConversationTree {
 
     /// Returns node IDs from root to `active`, inclusive.
     pub fn active_path(&self) -> Vec<NodeId> {
+        self.path_to(self.active)
+    }
+
+    /// Returns node IDs from root to `id`, inclusive.
+    pub fn path_to(&self, id: NodeId) -> Vec<NodeId> {
         let mut path = vec![];
-        let mut current = self.active;
+        let mut current = id;
         loop {
             path.push(current);
             match self.nodes.get(&current).and_then(|n| n.parent) {

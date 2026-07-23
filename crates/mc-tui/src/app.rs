@@ -13,6 +13,7 @@ use crate::conversation::tree::{
 };
 use crate::diff::{self, DiffEntry};
 use crate::edit::{self, EditOp, EditStrategy};
+use crate::prompt_plan;
 use crate::provider::{Provider, ProviderConfig};
 use crate::telemetry::{self, TelemetryRecorder};
 use crate::vim::{self, VimCommand};
@@ -914,13 +915,22 @@ impl App {
         let node = &self.tree.nodes[&node_id];
         let prompt = node.user_content.as_deref().unwrap_or_default();
         let completion = node.assistant_content.as_deref();
+        let prompt_plan = prompt_plan::build_prompt_plan(
+            &self.tree,
+            &self.context_ledger,
+            node_id,
+            prompt_plan::default_budget(self.provider, self.model.as_deref()),
+        );
+        let context_tokens = prompt_plan
+            .estimated_tokens
+            .saturating_sub(crate::token::estimate_text(prompt));
         let record = telemetry::turn_record(
             node.hash.clone(),
             self.edit_strategy,
             self.agent_mode,
             prompt,
             completion,
-            self.context_ledger.estimated_tokens(),
+            context_tokens,
             wall_time_ms,
             self.command_count_since_turn,
             self.edit_bytes_since_turn,
