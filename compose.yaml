@@ -1,0 +1,83 @@
+name: mc-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${MC_POSTGRES_DB:-mc}
+      POSTGRES_USER: ${MC_POSTGRES_USER:-mc}
+      POSTGRES_PASSWORD: ${MC_POSTGRES_PASSWORD:-mc_dev_only}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MC_MINIO_ROOT_USER:-mcdev}
+      MINIO_ROOT_PASSWORD: ${MC_MINIO_ROOT_PASSWORD:-mc_dev_only_password}
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  api:
+    build:
+      context: .
+      args:
+        BINARY: mc-api
+    environment:
+      DATABASE_URL: postgres://${MC_POSTGRES_USER:-mc}:${MC_POSTGRES_PASSWORD:-mc_dev_only}@postgres:5432/${MC_POSTGRES_DB:-mc}
+      MC_API_PORT: 8080
+      MC_OBJECT_STORE_ENDPOINT: http://minio:9000
+      RUST_LOG: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "8080:8080"
+
+  worker:
+    build:
+      context: .
+      args:
+        BINARY: mc-worker
+    environment:
+      DATABASE_URL: postgres://${MC_POSTGRES_USER:-mc}:${MC_POSTGRES_PASSWORD:-mc_dev_only}@postgres:5432/${MC_POSTGRES_DB:-mc}
+      MC_OBJECT_STORE_ENDPOINT: http://minio:9000
+      MC_WORKER_PORT: 8081
+      RUST_LOG: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8081/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
+  minio-data:

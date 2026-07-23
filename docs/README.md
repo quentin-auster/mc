@@ -2,6 +2,8 @@
 
 Design notes and project documentation live here.
 
+- [Local development](local-development.md)
+
 ## Workspace architecture
 
 The Rust workspace separates core policy from external systems:

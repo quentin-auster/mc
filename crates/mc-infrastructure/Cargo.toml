@@ -5,8 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+anyhow = "1"
 mc-application = { path = "../mc-application" }
 mc-domain = { path = "../mc-domain" }
+sqlx = { version = "0.8", default-features = false, features = ["macros", "migrate", "postgres", "runtime-tokio"] }
+tracing = "0.1"
 
 [lints]
 workspace = true
