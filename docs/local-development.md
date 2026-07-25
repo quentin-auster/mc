@@ -16,12 +16,10 @@ To stop the stack while retaining local data, run `docker compose down`.
 
 ## Database migrations
 
-Migration files live in `crates/mc-infrastructure/migrations`; issue #43 adds the initial schema.
-Apply every pending migration with:
+Migration files live in `crates/mc-infrastructure/migrations`. Apply every pending migration with:
 
 ```sh
 docker compose run --rm api migrate
 ```
 
-Until #43 lands, this command records no application schema and the stack starts against an empty
-development database. Application code does not create schema implicitly.
+Application code does not create or repair schema implicitly.
