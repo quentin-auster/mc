@@ -4,6 +4,7 @@ Design notes and project documentation live here.
 
 - [Local development](local-development.md)
 - [Architecture decision records](adr/README.md)
+- [Domain model](domain-model.md)
 
 ## Workspace architecture
 
