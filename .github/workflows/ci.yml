@@ -53,6 +53,9 @@ jobs:
       - name: Test PostgreSQL event store
         run: cargo test -p mc-infrastructure --test event_store -- --ignored
 
+      - name: Test repository store
+        run: cargo test -p mc-infrastructure --test repository -- --ignored
+
       - name: Start MinIO
         run: |
           docker run --detach --name mc-ci-minio \

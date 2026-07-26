@@ -19,7 +19,7 @@ serde_json = "1"
 sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["json", "macros", "migrate", "postgres", "runtime-tokio", "uuid"] }
 tempfile = "3"
-tokio = { version = "1", features = ["fs", "io-util", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "process", "time"] }
 tracing = "0.1"
 
 [dev-dependencies]

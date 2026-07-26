@@ -9,6 +9,7 @@ Design notes and project documentation live here.
 - [Run-state projection](run-state-projection.md)
 - [Artifact store](artifact-store.md)
 - [Context snapshots](context-snapshots.md)
+- [Repository registration and snapshots](repositories.md)
 
 ## Workspace architecture
 
