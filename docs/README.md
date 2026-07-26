@@ -6,6 +6,7 @@ Design notes and project documentation live here.
 - [Architecture decision records](adr/README.md)
 - [Domain model](domain-model.md)
 - [Event store](event-store.md)
+- [Run-state projection](run-state-projection.md)
 
 ## Workspace architecture
 

@@ -1143,7 +1143,10 @@ version = "0.1.0"
 dependencies = [
  "futures-core",
  "mc-domain",
+ "serde",
+ "serde_json",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
