@@ -10,6 +10,7 @@ Design notes and project documentation live here.
 - [Artifact store](artifact-store.md)
 - [Context snapshots](context-snapshots.md)
 - [Repository registration and snapshots](repositories.md)
+- [Run worktrees](worktrees.md)
 
 ## Workspace architecture
 

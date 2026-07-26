@@ -5,6 +5,7 @@ mod context_snapshot;
 mod event_store;
 mod model_provider;
 mod repository;
+mod worktree;
 
 pub use artifact_store::{PgObjectArtifactStore, build_s3_store};
 pub use context_snapshot::PgContextSnapshotStore;
@@ -12,6 +13,7 @@ pub use event_store::PgEventStore;
 pub use mc_application::DOMAIN_CONTRACT_VERSION;
 pub use model_provider::{OpenAiResponsesProvider, PgModelInvocationService};
 pub use repository::GitRepositoryStore;
+pub use worktree::GitWorktreeManager;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
