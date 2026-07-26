@@ -5,7 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+futures-core = "0.3"
 mc-domain = { path = "../mc-domain" }
+thiserror = "2"
 
 [lints]
 workspace = true

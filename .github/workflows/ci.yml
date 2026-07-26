@@ -49,3 +49,6 @@ jobs:
 
       - name: Test PostgreSQL migrations
         run: cargo test -p mc-infrastructure --test migrations -- --ignored
+
+      - name: Test PostgreSQL event store
+        run: cargo test -p mc-infrastructure --test event_store -- --ignored

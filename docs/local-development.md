@@ -12,6 +12,8 @@ The API is available at `http://localhost:8080`, PostgreSQL at `localhost:5432`,
 `http://localhost:9000`, and MinIO's console at `http://localhost:9001`. Each service has a health
 check, and the application services wait for both data services to become healthy.
 
+If port 5432 is already in use, set `MC_POSTGRES_PORT` in `.env` before starting the stack.
+
 To stop the stack while retaining local data, run `docker compose down`.
 
 ## Database migrations

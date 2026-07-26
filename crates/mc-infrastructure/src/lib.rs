@@ -1,5 +1,8 @@
 #![doc = "Infrastructure adapters that implement MC application ports."]
 
+mod event_store;
+
+pub use event_store::PgEventStore;
 pub use mc_application::DOMAIN_CONTRACT_VERSION;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
