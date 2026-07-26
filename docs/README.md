@@ -11,6 +11,7 @@ Design notes and project documentation live here.
 - [Context snapshots](context-snapshots.md)
 - [Repository registration and snapshots](repositories.md)
 - [Run worktrees](worktrees.md)
+- [Container sandbox](sandbox.md)
 
 ## Workspace architecture
 

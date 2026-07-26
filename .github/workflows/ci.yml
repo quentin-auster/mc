@@ -91,3 +91,6 @@ jobs:
 
       - name: Test context snapshots
         run: cargo test -p mc-infrastructure --test context_snapshot -- --ignored
+
+      - name: Test container sandbox
+        run: cargo test -p mc-infrastructure --test sandbox -- --ignored
