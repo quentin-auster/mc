@@ -5,6 +5,7 @@ mod context_snapshot;
 mod event_store;
 mod model_provider;
 mod repository;
+mod repository_tools;
 mod sandbox;
 mod worktree;
 
@@ -14,6 +15,7 @@ pub use event_store::PgEventStore;
 pub use mc_application::DOMAIN_CONTRACT_VERSION;
 pub use model_provider::{OpenAiResponsesProvider, PgModelInvocationService};
 pub use repository::GitRepositoryStore;
+pub use repository_tools::LocalRepositoryReader;
 pub use sandbox::{DockerSandbox, SandboxLimits};
 pub use worktree::GitWorktreeManager;
 

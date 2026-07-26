@@ -6,6 +6,7 @@ mod event_store;
 mod model_provider;
 mod projection;
 mod repository;
+mod repository_tools;
 mod sandbox;
 mod worktree;
 
@@ -16,5 +17,6 @@ pub use mc_domain::DOMAIN_CONTRACT_VERSION;
 pub use model_provider::*;
 pub use projection::*;
 pub use repository::*;
+pub use repository_tools::*;
 pub use sandbox::*;
 pub use worktree::*;

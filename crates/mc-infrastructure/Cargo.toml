@@ -21,6 +21,7 @@ sqlx = { version = "0.8", default-features = false, features = ["json", "macros"
 tempfile = "3"
 tokio = { version = "1", features = ["fs", "io-util", "process", "time"] }
 tracing = "0.1"
+walkdir = "2"
 
 [dev-dependencies]
 futures-util = "0.3"
