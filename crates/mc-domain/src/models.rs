@@ -164,7 +164,28 @@ pub struct ModelInvocation {
     pub model: String,
     pub request_artifact_id: ArtifactId,
     pub response_artifact_id: Option<ArtifactId>,
+    pub status: ModelInvocationStatus,
+    pub usage: Option<ModelTokenUsage>,
+    pub latency_milliseconds: Option<u64>,
+    pub provider_request_id: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
     pub created_at: Timestamp,
+    pub completed_at: Option<Timestamp>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelInvocationStatus {
+    Running,
+    Succeeded,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ModelTokenUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

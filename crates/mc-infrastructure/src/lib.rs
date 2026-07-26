@@ -2,10 +2,12 @@
 
 mod artifact_store;
 mod event_store;
+mod model_provider;
 
 pub use artifact_store::{PgObjectArtifactStore, build_s3_store};
 pub use event_store::PgEventStore;
 pub use mc_application::DOMAIN_CONTRACT_VERSION;
+pub use model_provider::{OpenAiResponsesProvider, PgModelInvocationService};
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 

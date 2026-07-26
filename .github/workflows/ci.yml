@@ -79,3 +79,6 @@ jobs:
 
       - name: Test artifact store
         run: cargo test -p mc-infrastructure --test artifact_store -- --ignored
+
+      - name: Test model provider
+        run: cargo test -p mc-infrastructure --test model_provider -- --ignored

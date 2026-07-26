@@ -10,7 +10,8 @@ HTTP, model-provider, or runtime dependencies.
 - `RunEvent` is an ordered event with a versioned JSON payload, causation, and correlation metadata.
 - `ToolCall` links typed execution state to argument and result artifacts.
 - `Artifact` records an object key plus content digest, media type, size, kind, and provenance.
-- `ModelInvocation` links a provider-neutral provider/model label to request, response, and context.
+- `ModelInvocation` links a provider-neutral provider/model label to request, response, context,
+  terminal status, token use, latency, provider request ID, and structured failure evidence.
 - `ContextSnapshot` and ordered `ContextItem` records preserve policy version, source evidence,
   rendered digest, token estimate, inclusion reason, and compaction lineage.
 - `Claim` is repository- or snapshot-scoped and is supported by explicit `Evidence` records.
