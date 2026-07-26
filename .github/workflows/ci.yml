@@ -52,3 +52,30 @@ jobs:
 
       - name: Test PostgreSQL event store
         run: cargo test -p mc-infrastructure --test event_store -- --ignored
+
+      - name: Start MinIO
+        run: |
+          docker run --detach --name mc-ci-minio \
+            --publish 59000:9000 \
+            --env MINIO_ROOT_USER=mcdev \
+            --env MINIO_ROOT_PASSWORD=mc_dev_only_password \
+            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:59000/minio/health/live; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs mc-ci-minio
+          exit 1
+
+      - name: Create artifact bucket
+        run: |
+          docker run --rm \
+            --network container:mc-ci-minio \
+            --entrypoint /bin/sh \
+            quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z \
+            -c 'mc alias set local http://localhost:9000 mcdev mc_dev_only_password && mc mb --ignore-existing local/mc-artifacts'
+
+      - name: Test artifact store
+        run: cargo test -p mc-infrastructure --test artifact_store -- --ignored

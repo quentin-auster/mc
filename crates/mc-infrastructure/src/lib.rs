@@ -1,7 +1,9 @@
 #![doc = "Infrastructure adapters that implement MC application ports."]
 
+mod artifact_store;
 mod event_store;
 
+pub use artifact_store::{PgObjectArtifactStore, build_s3_store};
 pub use event_store::PgEventStore;
 pub use mc_application::DOMAIN_CONTRACT_VERSION;
 

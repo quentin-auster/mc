@@ -7,6 +7,7 @@ Design notes and project documentation live here.
 - [Domain model](domain-model.md)
 - [Event store](event-store.md)
 - [Run-state projection](run-state-projection.md)
+- [Artifact store](artifact-store.md)
 
 ## Workspace architecture
 

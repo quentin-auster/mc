@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+bytes = "1"
 futures-core = "0.3"
 mc-domain = { path = "../mc-domain" }
 serde = { version = "1", features = ["derive"] }

@@ -7,11 +7,16 @@ rust-version.workspace = true
 [dependencies]
 anyhow = "1"
 async-stream = "0.3"
+bytes = "1"
 futures-core = "0.3"
+futures-util = "0.3"
 mc-application = { path = "../mc-application" }
 mc-domain = { path = "../mc-domain" }
+object_store = { version = "0.14", features = ["aws"] }
+sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["json", "macros", "migrate", "postgres", "runtime-tokio", "uuid"] }
-tokio = { version = "1", features = ["time"] }
+tempfile = "3"
+tokio = { version = "1", features = ["fs", "io-util", "time"] }
 tracing = "0.1"
 
 [dev-dependencies]
