@@ -15,6 +15,7 @@ Design notes and project documentation live here.
 - [Repository read tools](repository-tools.md)
 - [Repository editing tools](editing-tools.md)
 - [Command tools](command-tools.md)
+- [Tool policy](tool-policy.md)
 
 ## Workspace architecture
 

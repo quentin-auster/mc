@@ -60,6 +60,7 @@ domain_id!(ContextSnapshotId);
 domain_id!(ContextItemId);
 domain_id!(ClaimId);
 domain_id!(EvidenceId);
+domain_id!(ToolPolicyDecisionId);
 
 #[cfg(test)]
 mod tests {

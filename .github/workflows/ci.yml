@@ -59,6 +59,9 @@ jobs:
       - name: Test Git worktrees
         run: cargo test -p mc-infrastructure --test worktree -- --ignored
 
+      - name: Test tool policy
+        run: cargo test -p mc-infrastructure --test tool_policy -- --ignored
+
       - name: Start MinIO
         run: |
           docker run --detach --name mc-ci-minio \

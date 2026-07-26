@@ -1,11 +1,13 @@
 use std::{collections::BTreeMap, error::Error, path::PathBuf};
 
 use mc_domain::RunId;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::SandboxResult;
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CommandToolKind {
     Command,
     Test,

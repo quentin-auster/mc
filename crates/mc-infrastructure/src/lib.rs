@@ -9,6 +9,7 @@ mod model_provider;
 mod repository;
 mod repository_tools;
 mod sandbox;
+mod tool_policy;
 mod worktree;
 
 pub use artifact_store::{PgObjectArtifactStore, build_s3_store};
@@ -21,6 +22,7 @@ pub use model_provider::{OpenAiResponsesProvider, PgModelInvocationService};
 pub use repository::GitRepositoryStore;
 pub use repository_tools::LocalRepositoryReader;
 pub use sandbox::{DockerSandbox, SandboxLimits};
+pub use tool_policy::PgToolPolicyEngine;
 pub use worktree::GitWorktreeManager;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");

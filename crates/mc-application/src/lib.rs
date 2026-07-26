@@ -10,6 +10,7 @@ mod projection;
 mod repository;
 mod repository_tools;
 mod sandbox;
+mod tool_policy;
 mod worktree;
 
 pub use artifact_store::*;
@@ -23,4 +24,5 @@ pub use projection::*;
 pub use repository::*;
 pub use repository_tools::*;
 pub use sandbox::*;
+pub use tool_policy::*;
 pub use worktree::*;
