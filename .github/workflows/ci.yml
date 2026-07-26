@@ -82,3 +82,6 @@ jobs:
 
       - name: Test model provider
         run: cargo test -p mc-infrastructure --test model_provider -- --ignored
+
+      - name: Test context snapshots
+        run: cargo test -p mc-infrastructure --test context_snapshot -- --ignored

@@ -137,6 +137,32 @@ where
         &self,
         invocation: NewModelInvocation,
     ) -> Result<ModelInvocation, ModelInvocationError> {
+        let reproducible: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM context_snapshots AS snapshot
+                WHERE snapshot.id = $1
+                  AND snapshot.run_id = $2
+                  AND snapshot.rendered_artifact_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM context_items AS item
+                      WHERE item.context_snapshot_id = snapshot.id
+                        AND item.rendered_artifact_id IS NULL
+                  )
+            )",
+        )
+        .bind(invocation.context_snapshot_id.as_uuid())
+        .bind(invocation.run_id.as_uuid())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(storage)?;
+        if !reproducible {
+            return Err(ModelInvocationError::ContextSnapshotNotReproducible {
+                snapshot_id: invocation.context_snapshot_id,
+            });
+        }
+
         sqlx::query(
             "INSERT INTO model_invocations (id, run_id, context_snapshot_id, provider, model, request_artifact_id, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, 'running', to_timestamp($7::double precision / 1000))",
         )

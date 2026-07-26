@@ -144,6 +144,7 @@ async fn persists_success_and_failure_evidence(pool: PgPool) {
     )
     .unwrap();
     let artifacts = PgObjectArtifactStore::new(pool.clone(), objects);
+    let initial_request_artifact_id = request_artifact(&artifacts, run_id).await;
 
     let success_service = PgModelInvocationService::new(
         pool.clone(),
@@ -159,11 +160,36 @@ async fn persists_success_and_failure_evidence(pool: PgPool) {
         },
         artifacts.clone(),
     );
+    let rejected = success_service
+        .invoke(invocation(
+            run_id,
+            context_snapshot_id,
+            initial_request_artifact_id,
+        ))
+        .await;
+    assert!(matches!(
+        rejected,
+        Err(ModelInvocationError::ContextSnapshotNotReproducible {
+            snapshot_id
+        }) if snapshot_id == context_snapshot_id
+    ));
+    let rejected_count: i64 = sqlx::query_scalar("SELECT count(*) FROM model_invocations")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rejected_count, 0);
+
+    sqlx::query("UPDATE context_snapshots SET rendered_artifact_id = $2 WHERE id = $1")
+        .bind(context_snapshot_id.as_uuid())
+        .bind(initial_request_artifact_id.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
     let completed = success_service
         .invoke(invocation(
             run_id,
             context_snapshot_id,
-            request_artifact(&artifacts, run_id).await,
+            initial_request_artifact_id,
         ))
         .await
         .unwrap();

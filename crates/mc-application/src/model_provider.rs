@@ -56,6 +56,8 @@ pub struct NewModelInvocation {
 
 #[derive(Debug, Error)]
 pub enum ModelInvocationError {
+    #[error("context snapshot {snapshot_id} has no reproducible rendered artifact")]
+    ContextSnapshotNotReproducible { snapshot_id: ContextSnapshotId },
     #[error("model provider invocation {invocation_id} failed: {failure}")]
     Provider {
         invocation_id: InvocationId,

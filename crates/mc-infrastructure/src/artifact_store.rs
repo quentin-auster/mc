@@ -207,6 +207,7 @@ async fn upload_file(
 const fn artifact_kind(kind: ArtifactKind) -> &'static str {
     match kind {
         ArtifactKind::ModelPayload => "model_payload",
+        ArtifactKind::ContextPayload => "context_payload",
         ArtifactKind::ToolArguments => "tool_arguments",
         ArtifactKind::ToolResult => "tool_result",
         ArtifactKind::Patch => "patch",

@@ -91,10 +91,11 @@ async fn schema_persists_a_reproducible_invocation_graph(pool: PgPool) {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO context_items (id, context_snapshot_id, sequence, kind, source, inclusion_reason, estimated_tokens, rendered_digest) VALUES ($1, $2, 1, 'repository_evidence', $3, 'task evidence', 12, $4)",
+        "INSERT INTO context_items (id, context_snapshot_id, run_id, sequence, kind, source, inclusion_reason, estimated_tokens, rendered_digest) VALUES ($1, $2, $3, 1, 'repository_evidence', $4, 'task evidence', 12, $5)",
     )
     .bind(Uuid::new_v4())
     .bind(context_snapshot_id)
+    .bind(run_id)
     .bind(serde_json::json!({"kind": "snapshot_path", "snapshot_id": snapshot_id}))
     .bind(DIGEST)
     .execute(&pool)

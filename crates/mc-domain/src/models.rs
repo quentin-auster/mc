@@ -147,6 +147,7 @@ pub struct Artifact {
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactKind {
     ModelPayload,
+    ContextPayload,
     ToolArguments,
     ToolResult,
     Patch,
@@ -194,6 +195,7 @@ pub struct ContextSnapshot {
     pub run_id: RunId,
     pub policy_version: Version,
     pub rendered_digest: Sha256Digest,
+    pub rendered_artifact_id: ArtifactId,
     pub estimated_tokens: u64,
     pub created_at: Timestamp,
 }
@@ -208,6 +210,7 @@ pub struct ContextItem {
     pub inclusion_reason: String,
     pub estimated_tokens: u64,
     pub rendered_digest: Sha256Digest,
+    pub rendered_artifact_id: ArtifactId,
     pub compacted_from: Vec<ContextItemId>,
 }
 

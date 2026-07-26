@@ -8,6 +8,7 @@ Design notes and project documentation live here.
 - [Event store](event-store.md)
 - [Run-state projection](run-state-projection.md)
 - [Artifact store](artifact-store.md)
+- [Context snapshots](context-snapshots.md)
 
 ## Workspace architecture
 
