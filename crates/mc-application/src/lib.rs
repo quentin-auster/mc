@@ -2,6 +2,7 @@
 
 mod artifact_store;
 mod context_snapshot;
+mod editing;
 mod event_store;
 mod model_provider;
 mod projection;
@@ -12,6 +13,7 @@ mod worktree;
 
 pub use artifact_store::*;
 pub use context_snapshot::*;
+pub use editing::*;
 pub use event_store::*;
 pub use mc_domain::DOMAIN_CONTRACT_VERSION;
 pub use model_provider::*;

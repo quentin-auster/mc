@@ -94,3 +94,6 @@ jobs:
 
       - name: Test container sandbox
         run: cargo test -p mc-infrastructure --test sandbox -- --ignored
+
+      - name: Test repository editing
+        run: cargo test -p mc-infrastructure --test editing -- --ignored

@@ -13,6 +13,7 @@ Design notes and project documentation live here.
 - [Run worktrees](worktrees.md)
 - [Container sandbox](sandbox.md)
 - [Repository read tools](repository-tools.md)
+- [Repository editing tools](editing-tools.md)
 
 ## Workspace architecture
 
