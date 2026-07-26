@@ -1,6 +1,7 @@
 #![doc = "Application use cases and infrastructure-neutral ports for MC."]
 
 mod artifact_store;
+mod command_tools;
 mod context_snapshot;
 mod editing;
 mod event_store;
@@ -12,6 +13,7 @@ mod sandbox;
 mod worktree;
 
 pub use artifact_store::*;
+pub use command_tools::*;
 pub use context_snapshot::*;
 pub use editing::*;
 pub use event_store::*;

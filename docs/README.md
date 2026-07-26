@@ -14,6 +14,7 @@ Design notes and project documentation live here.
 - [Container sandbox](sandbox.md)
 - [Repository read tools](repository-tools.md)
 - [Repository editing tools](editing-tools.md)
+- [Command tools](command-tools.md)
 
 ## Workspace architecture
 

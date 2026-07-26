@@ -1,6 +1,7 @@
 #![doc = "Infrastructure adapters that implement MC application ports."]
 
 mod artifact_store;
+mod command_tools;
 mod context_snapshot;
 mod editing;
 mod event_store;
@@ -11,6 +12,7 @@ mod sandbox;
 mod worktree;
 
 pub use artifact_store::{PgObjectArtifactStore, build_s3_store};
+pub use command_tools::SandboxCommandTools;
 pub use context_snapshot::PgContextSnapshotStore;
 pub use editing::LocalRepositoryEditor;
 pub use event_store::PgEventStore;
